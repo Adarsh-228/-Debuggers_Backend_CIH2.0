@@ -1,6 +1,6 @@
-# Aventus Backend
+# CIH2.0 Backend
 
-This Flask application provides a backend service for Aventus, offering functionalities related to exercise feedback for pregnancy and prescription/food image analysis using AI models (Gemma and Gemini).
+This Flask application provides a backend service for CIH2.0, offering functionalities related to exercise feedback for pregnancy and prescription/food image analysis using AI models (Gemma and Gemini).
 
 ## Features
 

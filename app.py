@@ -1416,9 +1416,11 @@ def get_feedback_gemini():
     if name:
         name_lower = name.lower().strip()
         time_lower = time.lower().strip()
-        matches = df[(df['name'].str.lower() == name_lower) & (df['week'] == week_pregnancy)]
+        matches = df[(df['name'].str.lower() == name_lower)
+                     & (df['week'] == week_pregnancy)]
         if not matches.empty:
-            time_matches = matches[matches['time of day'].str.lower() == time_lower]
+            time_matches = matches[matches['time of day'].str.lower(
+            ) == time_lower]
             filtered_matches = time_matches if not time_matches.empty else matches
             for _, row in filtered_matches.iterrows():
                 exact_matches.append({
@@ -1465,10 +1467,10 @@ def get_feedback_gemini():
     context_parts = []
     for ex in relevant_exercises:
         context_parts.append(
-            f"Exercise: {ex['name']} for week {ex['week']} of pregnancy\n"+
-            f"  - Recommended time: {ex['time']}\n"+
-            f"  - Recommended sets/reps: {ex['N']}\n"+
-            f"  - Benefits: {ex['benefits']}\n"+
+            f"Exercise: {ex['name']} for week {ex['week']} of pregnancy\n" +
+            f"  - Recommended time: {ex['time']}\n" +
+            f"  - Recommended sets/reps: {ex['N']}\n" +
+            f"  - Benefits: {ex['benefits']}\n" +
             f"  - Link: {ex['link']}"
         )
     context = "\n\n".join(context_parts)

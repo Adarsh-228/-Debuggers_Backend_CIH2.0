@@ -187,7 +187,7 @@ def get_feedback():
     except ValueError:
         return jsonify({"error": "week_pregnancy and n_sets must be integers"}), 400
 
-    # First try direct filtering if name is provided (exact matching)
+    # Enhanced data retrieval with ALL dataset columns
     exact_matches = []
     if name:
         name_lower = name.lower().strip()
@@ -203,15 +203,28 @@ def get_feedback():
             ) == time_lower]
             filtered_matches = time_matches if not time_matches.empty else matches
 
-            # Convert to our metadata format
+            # Convert to our enhanced metadata format
             for _, row in filtered_matches.iterrows():
                 exact_matches.append({
-                    "name": row['name'],
-                    "week": row['week'],
-                    "time": row['time of day'],
-                    "N": row['N'],
-                    "benefits": row['benefits'],
-                    "link": row['link'],
+                    "id": row.get('id'),
+                    "name": row.get('name'),
+                    "week": row.get('week'),
+                    "time": row.get('time of day'),
+                    "N": row.get('N'),
+                    "benefits": row.get('benefits'),
+                    "link": row.get('Link'),
+                    "trimester": row.get('trimester'),
+                    "contraindications": row.get('contraindications'),
+                    "modifications": row.get('modifications'),
+                    "intensity": row.get('intensity'),
+                    "rest_interval": row.get('rest_interval'),
+                    "equipment_needed": row.get('equipment_needed'),
+                    "primary_muscles": row.get('primary_muscles'),
+                    "safety_tips": row.get('safety_tips'),
+                    "fitness_level": row.get('fitness_level'),
+                    "medical_clearance": row.get('medical_clearance'),
+                    "progression_guidelines": row.get('progression_guidelines'),
+                    "postpartum_relevance": row.get('postpartum_relevance')
                 })
 
     # If we found exact matches, use them exclusively
@@ -227,7 +240,7 @@ def get_feedback():
         # Retrieve relevant exercises using RAG
         docs = vectorstore.similarity_search(query, k=4)
 
-        # Extract exercises from metadata
+        # Extract exercises from metadata with enhanced data
         relevant_exercises = []
         for doc in docs:
             metadata = doc.metadata
@@ -235,81 +248,112 @@ def get_feedback():
             # Apply post-retrieval filtering for better match quality
             # Prioritize exact week matches
             if 'week' in metadata and metadata['week'] == week_pregnancy:
-                # Extract exercise info from metadata
-                exercise_info = {
-                    "name": metadata['name'],
-                    "week": metadata['week'],
-                    "time": metadata['time'],
-                    "N": metadata['N'],
-                    "benefits": metadata['benefits'],
-                    "link": metadata['link']
-                }
-                relevant_exercises.append(exercise_info)
+                # Get full row data from dataframe using row_index
+                row_index = metadata.get('row_index')
+                if row_index is not None and row_index < len(df):
+                    row = df.iloc[row_index]
+                    exercise_info = {
+                        "id": row.get('id'),
+                        "name": row.get('name'),
+                        "week": row.get('week'),
+                        "time": row.get('time of day'),
+                        "N": row.get('N'),
+                        "benefits": row.get('benefits'),
+                        "link": row.get('Link'),
+                        "trimester": row.get('trimester'),
+                        "contraindications": row.get('contraindications'),
+                        "modifications": row.get('modifications'),
+                        "intensity": row.get('intensity'),
+                        "rest_interval": row.get('rest_interval'),
+                        "equipment_needed": row.get('equipment_needed'),
+                        "primary_muscles": row.get('primary_muscles'),
+                        "safety_tips": row.get('safety_tips'),
+                        "fitness_level": row.get('fitness_level'),
+                        "medical_clearance": row.get('medical_clearance'),
+                        "progression_guidelines": row.get('progression_guidelines'),
+                        "postpartum_relevance": row.get('postpartum_relevance')
+                    }
+                    relevant_exercises.append(exercise_info)
 
         # If we didn't find any exercises after filtering by week, use the top results regardless
         if not relevant_exercises and docs:
             for doc in docs:
                 metadata = doc.metadata
-                exercise_info = {
-                    "name": metadata['name'],
-                    "week": metadata['week'],
-                    "time": metadata['time'],
-                    "N": metadata['N'],
-                    "benefits": metadata['benefits'],
-                    "link": metadata['link']
-                }
-                relevant_exercises.append(exercise_info)
+                row_index = metadata.get('row_index')
+                if row_index is not None and row_index < len(df):
+                    row = df.iloc[row_index]
+                    exercise_info = {
+                        "id": row.get('id'),
+                        "name": row.get('name'),
+                        "week": row.get('week'),
+                        "time": row.get('time of day'),
+                        "N": row.get('N'),
+                        "benefits": row.get('benefits'),
+                        "link": row.get('Link'),
+                        "trimester": row.get('trimester'),
+                        "contraindications": row.get('contraindications'),
+                        "modifications": row.get('modifications'),
+                        "intensity": row.get('intensity'),
+                        "rest_interval": row.get('rest_interval'),
+                        "equipment_needed": row.get('equipment_needed'),
+                        "primary_muscles": row.get('primary_muscles'),
+                        "safety_tips": row.get('safety_tips'),
+                        "fitness_level": row.get('fitness_level'),
+                        "medical_clearance": row.get('medical_clearance'),
+                        "progression_guidelines": row.get('progression_guidelines'),
+                        "postpartum_relevance": row.get('postpartum_relevance')
+                    }
+                    relevant_exercises.append(exercise_info)
 
-    # Format context from retrieved exercises
-    context_parts = []
-    for ex in relevant_exercises:
-        context_parts.append(
-            f"Exercise: {ex['name']} for week {ex['week']} of pregnancy\n"
-            f"  - Recommended time: {ex['time']}\n"
-            f"  - Recommended sets/reps: {ex['N']}\n"
-            f"  - Benefits: {ex['benefits']}\n"
-            f"  - Link: {ex['link']}"
-        )
+    # Enhanced prompt for structured analysis using Gemma
+    exercise_data = relevant_exercises[0] if relevant_exercises else {}
 
-    context = "\n\n".join(context_parts)
+    prompt = f"""As a certified prenatal fitness expert, analyze this exercise session and provide comprehensive feedback in JSON format.
 
-    # Generate feedback with Gemma using a more structured, objective prompt
-    prompt = f"""EXERCISE FEEDBACK SYSTEM
+USER SESSION DATA:
+- Exercise Name: {name if name else 'Not specified'}
+- Pregnancy Week: {week_pregnancy}
+- Sets Performed: {n_sets}
+- Time of Day: {time}
 
-USER INFORMATION:
-- Exercise: {name if name else 'Not specified'}
-- Pregnancy week: {week_pregnancy}
-- Sets performed: {n_sets}
-- Time: {time}
+REFERENCE EXERCISE DATA:
+{exercise_data}
 
-REFERENCE DATA:
-{context}
+Provide structured analysis including:
+1. Exercise analysis (name, recommended vs performed sets, timing, week suitability)
+2. Technical details (muscles, intensity, equipment, rest intervals, fitness level, trimester)
+3. Safety guidelines (contraindications, safety tips, medical clearance, modifications)
+4. Benefits and progression (benefits, progression guidelines, postpartum relevance)
+5. Recommendations (continue routine, modifications, next week adjustments, warning signs)
+6. Summary (overall assessment, key points, reference link)
 
-TASK:
-Generate concise, objective exercise feedback for this pregnancy exercise routine.
-The feedback should:
-1. State what exercise was performed and at what pregnancy week
-2. Compare user's sets ({n_sets}) with recommended sets
-3. Explain exercise benefits during pregnancy
-4. Provide clear safety guidelines and modifications if needed
-5. Include links to resources for proper form
+Generate a detailed JSON response with all categories filled. If data is missing, use null values."""
 
-FORMAT REQUIREMENTS:
-- Use factual, objective language (avoid "I think", "my opinion", etc.)
-- Keep complete sentences
-- Be concise but comprehensive
-- Ensure response is complete with no cut-off sentences
-"""
-
-    # Increase max tokens to ensure we get complete responses
-    generated_output = gemma(prompt, max_new_tokens=800,
+    # Generate feedback with Gemma using enhanced prompt
+    generated_output = gemma(prompt, max_new_tokens=1200,
                              truncation=True, return_full_text=False)
 
     response_content = ""
     if generated_output and isinstance(generated_output, list) and generated_output[0].get("generated_text"):
         response_content = generated_output[0]["generated_text"].strip()
 
-    return jsonify({"feedback": response_content})
+        # Try to extract JSON from the response
+        json_start = response_content.find('{')
+        json_end = response_content.rfind('}') + 1
+
+        if json_start != -1 and json_end > json_start:
+            json_str = response_content[json_start:json_end]
+            try:
+                parsed_response = json.loads(json_str)
+                return jsonify(parsed_response)
+            except json.JSONDecodeError:
+                # If JSON parsing fails, return the raw response as before
+                return jsonify({"feedback": response_content})
+        else:
+            # If no JSON structure found, return raw response
+            return jsonify({"feedback": response_content})
+
+    return jsonify({"feedback": "Unable to generate feedback at this time."})
 
 # Common function for OCR and file handling
 
@@ -1400,112 +1444,225 @@ def gemini_chatbot_endpoint():
 def get_feedback_gemini():
     if not gemini_model_client:
         return jsonify({"error": "Gemini client is not configured."}), 503
+
     data = request.get_json()
     week_pregnancy = data.get("week_pregnancy")
     n_sets = data.get("n_sets")
     time = data.get("time")
     name = data.get("name", "")
+
     if not all([week_pregnancy, n_sets, time]):
         return jsonify({"error": "Missing parameters"}), 400
+
     try:
         week_pregnancy = int(week_pregnancy)
         n_sets = int(n_sets)
     except ValueError:
         return jsonify({"error": "week_pregnancy and n_sets must be integers"}), 400
+
+    # Enhanced data retrieval with ALL dataset columns
     exact_matches = []
     if name:
         name_lower = name.lower().strip()
         time_lower = time.lower().strip()
         matches = df[(df['name'].str.lower() == name_lower)
                      & (df['week'] == week_pregnancy)]
+
         if not matches.empty:
             time_matches = matches[matches['time of day'].str.lower(
             ) == time_lower]
             filtered_matches = time_matches if not time_matches.empty else matches
+
             for _, row in filtered_matches.iterrows():
+                # Extract ALL available data from the dataset
                 exact_matches.append({
-                    "name": row['name'],
-                    "week": row['week'],
-                    "time": row['time of day'],
-                    "N": row['N'],
-                    "benefits": row['benefits'],
-                    "link": row['link'],
+                    "id": row.get('id'),
+                    "name": row.get('name'),
+                    "week": row.get('week'),
+                    "time": row.get('time of day'),
+                    "N": row.get('N'),
+                    "benefits": row.get('benefits'),
+                    "link": row.get('Link'),
+                    "trimester": row.get('trimester'),
+                    "contraindications": row.get('contraindications'),
+                    "modifications": row.get('modifications'),
+                    "intensity": row.get('intensity'),
+                    "rest_interval": row.get('rest_interval'),
+                    "equipment_needed": row.get('equipment_needed'),
+                    "primary_muscles": row.get('primary_muscles'),
+                    "safety_tips": row.get('safety_tips'),
+                    "fitness_level": row.get('fitness_level'),
+                    "medical_clearance": row.get('medical_clearance'),
+                    "progression_guidelines": row.get('progression_guidelines'),
+                    "postpartum_relevance": row.get('postpartum_relevance')
                 })
+
     if exact_matches:
         relevant_exercises = exact_matches
     else:
+        # RAG fallback with enhanced metadata extraction
         if name:
             query = f"Exercise name: {name}, Pregnancy week: {week_pregnancy}, Time of day: {time}"
         else:
             query = f"Exercises for pregnancy week: {week_pregnancy}, Time of day: {time}"
+
         docs = vectorstore.similarity_search(query, k=4)
         relevant_exercises = []
+
         for doc in docs:
             metadata = doc.metadata
             if 'week' in metadata and metadata['week'] == week_pregnancy:
-                exercise_info = {
-                    "name": metadata['name'],
-                    "week": metadata['week'],
-                    "time": metadata['time'],
-                    "N": metadata['N'],
-                    "benefits": metadata['benefits'],
-                    "link": metadata['link']
-                }
-                relevant_exercises.append(exercise_info)
+                # Get full row data from dataframe using row_index
+                row_index = metadata.get('row_index')
+                if row_index is not None and row_index < len(df):
+                    row = df.iloc[row_index]
+                    exercise_info = {
+                        "id": row.get('id'),
+                        "name": row.get('name'),
+                        "week": row.get('week'),
+                        "time": row.get('time of day'),
+                        "N": row.get('N'),
+                        "benefits": row.get('benefits'),
+                        "link": row.get('Link'),
+                        "trimester": row.get('trimester'),
+                        "contraindications": row.get('contraindications'),
+                        "modifications": row.get('modifications'),
+                        "intensity": row.get('intensity'),
+                        "rest_interval": row.get('rest_interval'),
+                        "equipment_needed": row.get('equipment_needed'),
+                        "primary_muscles": row.get('primary_muscles'),
+                        "safety_tips": row.get('safety_tips'),
+                        "fitness_level": row.get('fitness_level'),
+                        "medical_clearance": row.get('medical_clearance'),
+                        "progression_guidelines": row.get('progression_guidelines'),
+                        "postpartum_relevance": row.get('postpartum_relevance')
+                    }
+                    relevant_exercises.append(exercise_info)
+
+        # If no exact week matches, include broader results
         if not relevant_exercises and docs:
             for doc in docs:
                 metadata = doc.metadata
-                exercise_info = {
-                    "name": metadata['name'],
-                    "week": metadata['week'],
-                    "time": metadata['time'],
-                    "N": metadata['N'],
-                    "benefits": metadata['benefits'],
-                    "link": metadata['link']
-                }
-                relevant_exercises.append(exercise_info)
-    context_parts = []
-    for ex in relevant_exercises:
-        context_parts.append(
-            f"Exercise: {ex['name']} for week {ex['week']} of pregnancy\n" +
-            f"  - Recommended time: {ex['time']}\n" +
-            f"  - Recommended sets/reps: {ex['N']}\n" +
-            f"  - Benefits: {ex['benefits']}\n" +
-            f"  - Link: {ex['link']}"
-        )
-    context = "\n\n".join(context_parts)
-    prompt = f"""EXERCISE FEEDBACK SYSTEM
+                row_index = metadata.get('row_index')
+                if row_index is not None and row_index < len(df):
+                    row = df.iloc[row_index]
+                    exercise_info = {
+                        "id": row.get('id'),
+                        "name": row.get('name'),
+                        "week": row.get('week'),
+                        "time": row.get('time of day'),
+                        "N": row.get('N'),
+                        "benefits": row.get('benefits'),
+                        "link": row.get('Link'),
+                        "trimester": row.get('trimester'),
+                        "contraindications": row.get('contraindications'),
+                        "modifications": row.get('modifications'),
+                        "intensity": row.get('intensity'),
+                        "rest_interval": row.get('rest_interval'),
+                        "equipment_needed": row.get('equipment_needed'),
+                        "primary_muscles": row.get('primary_muscles'),
+                        "safety_tips": row.get('safety_tips'),
+                        "fitness_level": row.get('fitness_level'),
+                        "medical_clearance": row.get('medical_clearance'),
+                        "progression_guidelines": row.get('progression_guidelines'),
+                        "postpartum_relevance": row.get('postpartum_relevance')
+                    }
+                    relevant_exercises.append(exercise_info)
 
-USER INFORMATION:
-- Exercise: {name if name else 'Not specified'}
-- Pregnancy week: {week_pregnancy}
-- Sets performed: {n_sets}
-- Time: {time}
+    # Enhanced prompt for structured analysis
+    exercise_data = relevant_exercises[0] if relevant_exercises else {}
 
-REFERENCE DATA:
-{context}
+    prompt = f"""As a certified prenatal fitness expert, analyze this exercise session and provide comprehensive feedback in the exact JSON structure below.
 
-TASK:
-Generate concise, objective exercise feedback for this pregnancy exercise routine.
-The feedback should:
-1. State what exercise was performed and at what pregnancy week
-2. Compare user's sets ({n_sets}) with recommended sets
-3. Explain exercise benefits during pregnancy
-4. Provide clear safety guidelines and modifications if needed
-5. Include links to resources for proper form
+USER SESSION DATA:
+- Exercise Name: {name if name else 'Not specified'}
+- Pregnancy Week: {week_pregnancy}
+- Sets Performed: {n_sets}
+- Time of Day: {time}
 
-FORMAT REQUIREMENTS:
-- Use factual, objective language (avoid "I think", "my opinion", etc.)
-- Keep complete sentences
-- Be concise but comprehensive
-- Ensure response is complete with no cut-off sentences
-"""
+REFERENCE EXERCISE DATA:
+{exercise_data}
+
+Provide your analysis in this EXACT JSON structure (include ALL fields even if null):
+
+{{
+  "exercise_analysis": {{
+         "exercise_name": "{exercise_data.get('name', name) if exercise_data.get('name') or name else 'null'}",
+     "recommended_sets": "{exercise_data.get('N') if exercise_data.get('N') else 'null'}",
+    "user_performed_sets": {n_sets},
+    "sets_comparison": "analysis of user sets vs recommended",
+    "timing_appropriateness": "analysis of time of day choice",
+    "week_suitability": "analysis for current pregnancy week"
+  }},
+  "technical_details": {{
+         "primary_muscles": "{exercise_data.get('primary_muscles') if exercise_data.get('primary_muscles') else 'null'}",
+     "intensity_level": "{exercise_data.get('intensity') if exercise_data.get('intensity') else 'null'}",
+     "equipment_needed": "{exercise_data.get('equipment_needed') if exercise_data.get('equipment_needed') else 'null'}",
+     "rest_interval": "{exercise_data.get('rest_interval') if exercise_data.get('rest_interval') else 'null'}",
+     "fitness_level_required": "{exercise_data.get('fitness_level') if exercise_data.get('fitness_level') else 'null'}",
+     "trimester": "{exercise_data.get('trimester') if exercise_data.get('trimester') else 'null'}"
+  }},
+  "safety_guidelines": {{
+         "contraindications": "{exercise_data.get('contraindications') if exercise_data.get('contraindications') else 'null'}",
+     "safety_tips": "{exercise_data.get('safety_tips') if exercise_data.get('safety_tips') else 'null'}",
+     "medical_clearance_required": "{exercise_data.get('medical_clearance') if exercise_data.get('medical_clearance') else 'null'}",
+     "modifications_available": "{exercise_data.get('modifications') if exercise_data.get('modifications') else 'null'}"
+  }},
+  "benefits_and_progression": {{
+         "exercise_benefits": "{exercise_data.get('benefits') if exercise_data.get('benefits') else 'null'}",
+     "progression_guidelines": "{exercise_data.get('progression_guidelines') if exercise_data.get('progression_guidelines') else 'null'}",
+     "postpartum_relevance": "{exercise_data.get('postpartum_relevance') if exercise_data.get('postpartum_relevance') else 'null'}"
+  }},
+  "recommendations": {{
+    "continue_current_routine": "boolean and reasoning",
+    "suggested_modifications": "specific modifications if needed",
+    "next_week_adjustments": "recommendations for week {week_pregnancy + 1}",
+    "warning_signs_to_watch": "specific warning signs for this exercise and week"
+  }},
+  "summary": {{
+    "overall_assessment": "brief overall assessment",
+    "key_points": ["point 1", "point 2", "point 3"],
+         "reference_link": "{exercise_data.get('link') if exercise_data.get('link') else 'null'}"
+  }}
+}}
+
+IMPORTANT: 
+- Replace null with actual null values in JSON, not the string "null"
+- Provide specific, evidence-based analysis
+- Keep responses concise but comprehensive
+- If no data available for a field, use null
+- Ensure valid JSON format"""
+
     try:
         response = gemini_model_client.generate_content(prompt)
         response_content = response.text.strip() if response else ""
+
+        # Extract and parse JSON response
+        json_start = response_content.find('{')
+        json_end = response_content.rfind('}') + 1
+
+        if json_start != -1 and json_end > json_start:
+            json_str = response_content[json_start:json_end]
+            try:
+                parsed_response = json.loads(json_str)
+                return jsonify(parsed_response)
+            except json.JSONDecodeError as e:
+                return jsonify({
+                    "error": "Failed to parse structured response",
+                    "details": str(e),
+                    "raw_response": response_content
+                }), 500
+        else:
+            return jsonify({
+                "error": "No valid JSON structure found in response",
+                "raw_response": response_content
+            }), 500
+
     except Exception as e:
-        return jsonify({"error": "Error processing request with Gemini model", "details": str(e)}), 500
-    return jsonify({"feedback": response_content})
+        return jsonify({
+            "error": "Error processing request with Gemini model",
+            "details": str(e)
+        }), 500
 
 
 if __name__ == "__main__":

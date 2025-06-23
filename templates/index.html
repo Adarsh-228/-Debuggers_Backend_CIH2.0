@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Exercise Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        #videoContainer {
+            position: relative;
+            width: 640px; /* Default, adjust as needed */
+            height: 480px; /* Default, adjust as needed */
+            margin: 20px auto;
+            border: 1px solid #ccc;
+            background-color: #000; /* Background for video area */
+        }
+        #videoElement {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; 
+            transform: scaleX(-1); /* Mirror effect for selfie view */
+        }
+        #canvasElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1); /* Mirror effect for selfie view - must match video */
+        }
+        .controls, .stats {
+            margin-top: 15px;
+        }
+        .stats p {
+            font-size: 1.2em;
+            margin: 8px 0;
+            color: #333;
+        }
+        .stats span {
+            font-weight: bold;
+            color: #007bff;
+        }
+        select, input, button {
+            padding: 10px;
+            margin: 5px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 1em;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        #serverMessage {
+            margin-top: 10px;
+            font-style: italic;
+            color: #555;
+            min-height: 1.2em; /* Reserve space */
+        }
+        .loader {
+            border: 5px solid #f3f3f3; /* Light grey */
+            border-top: 5px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+            display: none; /* Hidden by default */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Exercise Tracker</h1>
+
+        <div class="controls">
+            <label for="exerciseSelect">Choose Exercise:</label>
+            <select id="exerciseSelect">
+                <option value="bicep_curl">Bicep Curls</option>
+                <option value="squat">Squats</option>
+                <option value="lateral_raise">Lateral Raises</option>
+                <option value="overhead_press">Overhead Press</option>
+                <option value="torso_twist">Torso Twists</option>
+            </select>
+
+            <label for="targetReps">Target Reps:</label>
+            <input type="number" id="targetReps" value="10" min="1">
+            
+            <button id="startButton">Start Tracking</button>
+            <button id="stopButton" disabled>Stop Tracking</button>
+            </div>
+
+        <div id="videoContainer">
+            <video id="videoElement" autoplay playsinline muted></video>
+            <canvas id="canvasElement"></canvas>
+        </div>
+        <div class="loader" id="loader"></div>
+
+        <div class="stats">
+            <p>Exercise: <span id="currentExercise">N/A</span></p>
+            <p>Reps: <span id="currentReps">0</span> / <span id="displayTargetReps">10</span></p>
+            <p>Status: <span id="currentPosition">N/A</span></p>
+            <p>Angle/Factor: <span id="currentAngle">N/A</span></p>
+        </div>
+        <p id="serverMessage">Not connected.</p>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loader = document.getElementById('loader');
+        
+        const exerciseSelect = document.getElementById('exerciseSelect');
+        const targetRepsInput = document.getElementById('targetReps');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+
+        const currentExerciseSpan = document.getElementById('currentExercise');
+        const currentRepsSpan = document.getElementById('currentReps');
+        const displayTargetRepsSpan = document.getElementById('displayTargetReps');
+        const currentPositionSpan = document.getElementById('currentPosition');
+        const currentAngleSpan = document.getElementById('currentAngle');
+        const serverMessageSpan = document.getElementById('serverMessage');
+
+        let socket = null;
+        let stream = null;
+        let animationFrameId = null;
+        let isTracking = false;
+        let currentTargetReps = 10;
+        let frameSendInterval = 200; // ms, approx 5 FPS. Lower for more FPS, higher for less.
+        let lastFrameSentTime = 0;
+
+        const POSE_CONNECTIONS = [
+            [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8], [9, 10],
+            [11, 12], [11, 23], [12, 24], [23, 24],
+            [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
+            [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
+            [23, 25], [25, 27], [27, 29], [27, 31], [29, 31],
+            [24, 26], [26, 28], [28, 30], [28, 32], [30, 32]
+        ];
+
+        async function setupCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            try {
+                serverMessageSpan.textContent = "Requesting camera access...";
+                loader.style.display = 'block';
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+                videoElement.srcObject = stream;
+                await new Promise((resolve) => videoElement.onloadedmetadata = resolve);
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+                console.log(`Camera setup: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
+                serverMessageSpan.textContent = "Camera active.";
+            } catch (err) {
+                console.error("Error accessing webcam: ", err);
+                serverMessageSpan.textContent = "Error accessing webcam: " + err.message;
+                stream = null; // Ensure stream is null if setup failed
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function connectWebSocket() {
+            if (socket && socket.connected) {
+                console.log("Socket.IO already connected.");
+                selectExerciseInServer();
+                return;
+            }
+
+            const socketUrl = window.location.protocol + "//" + window.location.hostname + ":5000";
+            socket = io(socketUrl);
+            serverMessageSpan.textContent = "Connecting to server...";
+            loader.style.display = 'block';
+
+            socket.on('connect', () => {
+                console.log("Socket.IO connected: ", socket.id);
+                loader.style.display = 'none';
+                serverMessageSpan.textContent = "Connected. Ready to track.";
+                selectExerciseInServer();
+                if(isTracking && !animationFrameId) {
+                    lastFrameSentTime = 0;
+                    animationFrameId = requestAnimationFrame(processVideoFrame);
+                }
+            });
+
+            socket.on('connection_ack', (data) => {
+                console.log("Socket.IO connection_ack:", data);
+                serverMessageSpan.textContent = data.message || "Connection Acknowledged. Select exercise & start.";
+                if(data.current_exercise) {
+                    currentExerciseSpan.textContent = data.current_exercise.replace('_',' ').toUpperCase();
+                }
+            });
+
+            socket.on('exercise_changed', (data) => {
+                console.log("Socket.IO exercise_changed:", data);
+                serverMessageSpan.textContent = data.message;
+                if (data.current_exercise) {
+                    currentExerciseSpan.textContent = data.current_exercise.replace('_',' ').toUpperCase();
+                }
+            });
+            
+            socket.on('frame_processed', (data) => {
+                if (data.landmarks) {
+                    drawLandmarks(data.landmarks);
+                }
+                if (data.exercise_status) {
+                    updateExerciseStats(data.exercise_status);
+                    if (data.exercise_status.reps >= currentTargetReps) {
+                        serverMessageSpan.textContent = `Target of ${currentTargetReps} reps reached!`;
+                        stopTracking();
+                        setTimeout(() => alert(`Congratulations! You completed ${currentTargetReps} reps of ${data.exercise_status.exercise_type.replace('_',' ').toUpperCase()}.`), 100);
+                    }
+                    if (data.exercise_status.error) {
+                        serverMessageSpan.textContent = "Processing Error: " + data.exercise_status.error;
+                        loader.style.display = 'none';
+                    }
+                }
+            });
+
+            socket.on('server_error', (data) => {
+                console.error("Socket.IO server_error:", data);
+                serverMessageSpan.textContent = "Server Error: " + (data.message || JSON.stringify(data));
+                loader.style.display = 'none';
+            });
+
+            socket.on('error', (data) => {
+                console.error("Socket.IO generic error event:", data);
+                serverMessageSpan.textContent = "Error: " + (data.message || JSON.stringify(data));
+                loader.style.display = 'none';
+            });
+
+            socket.on('disconnect', (reason) => {
+                console.log("Socket.IO disconnected:", reason);
+                loader.style.display = 'none';
+                serverMessageSpan.textContent = "Disconnected: " + reason + ". Please Start again.";
+                if (isTracking) { 
+                    stopTracking(); 
+                }
+                 startButton.disabled = false; 
+                 stopButton.disabled = true;
+                 exerciseSelect.disabled = false;
+                 targetRepsInput.disabled = false;
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error("Socket.IO connection error: ", error);
+                loader.style.display = 'none';
+                serverMessageSpan.textContent = "Connection error: " + error.message + ". Server might be down.";
+                startButton.disabled = false; 
+                stopButton.disabled = true;
+                exerciseSelect.disabled = false;
+                targetRepsInput.disabled = false;
+            });
+        }
+
+        function selectExerciseInServer() {
+            if (socket && socket.connected) {
+                const selectedExercise = exerciseSelect.value;
+                socket.emit('message', { event_type: 'select_exercise', exercise_type: selectedExercise });
+                console.log("Emitted select_exercise event with: " + selectedExercise);
+                currentExerciseSpan.textContent = selectedExercise.replace('_',' ').toUpperCase();
+                currentRepsSpan.textContent = "0";
+                currentPositionSpan.textContent = "N/A";
+                currentAngleSpan.textContent = "N/A";
+            } else {
+                console.warn("Cannot select exercise, Socket.IO not connected.");
+                serverMessageSpan.textContent = "Cannot select exercise. Not connected.";
+            }
+        }
+
+        function drawLandmarks(landmarks) {
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            if (!landmarks || landmarks.length === 0) return;
+
+            landmarks.forEach(lm => {
+                const x = lm.x * canvasElement.width;
+                const y = lm.y * canvasElement.height;
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 5, 0, 2 * Math.PI);
+                canvasCtx.fillStyle = 'red';
+                canvasCtx.fill();
+            });
+
+            canvasCtx.strokeStyle = 'lime';
+            canvasCtx.lineWidth = 3;
+            POSE_CONNECTIONS.forEach(conn => {
+                if (conn[0] < landmarks.length && conn[1] < landmarks.length && landmarks[conn[0]] && landmarks[conn[1]]) {
+                    if (landmarks[conn[0]].visibility > 0.5 && landmarks[conn[1]].visibility > 0.5) {
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(landmarks[conn[0]].x * canvasElement.width, landmarks[conn[0]].y * canvasElement.height);
+                        canvasCtx.lineTo(landmarks[conn[1]].x * canvasElement.width, landmarks[conn[1]].y * canvasElement.height);
+                        canvasCtx.stroke();
+                    }
+                }
+            });
+        }
+
+        function updateExerciseStats(status) {
+            currentExerciseSpan.textContent = status.exercise_type.replace('_',' ').toUpperCase();
+            currentRepsSpan.textContent = status.reps;
+            currentPositionSpan.textContent = status.position ? status.position.toUpperCase() : 'N/A';
+            currentAngleSpan.textContent = status.angle !== undefined ? parseInt(status.angle) : 'N/A';
+        }
+
+        function processVideoFrame(timestamp) {
+            if (!isTracking || !socket || !socket.connected || !stream || !videoElement.videoWidth) {
+                if (isTracking) animationFrameId = requestAnimationFrame(processVideoFrame);
+                return;
+            }
+
+            if (timestamp - lastFrameSentTime > frameSendInterval) {
+                lastFrameSentTime = timestamp;
+
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = videoElement.videoWidth;
+                tempCanvas.height = videoElement.videoHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+                
+                const frameDataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
+                socket.emit('message', { event_type: 'process_frame', image_data: frameDataUrl });
+            }
+            animationFrameId = requestAnimationFrame(processVideoFrame);
+        }
+
+        startButton.onclick = async () => {
+            if (isTracking) return;
+            startButton.disabled = true;
+            loader.style.display = 'block';
+
+            await setupCamera();
+            if (!stream) {
+                alert("Could not start camera. Please ensure permissions are granted and no other app is using the camera.");
+                startButton.disabled = false;
+                loader.style.display = 'none';
+                return;
+            }
+            currentTargetReps = parseInt(targetRepsInput.value) || 10;
+            displayTargetRepsSpan.textContent = currentTargetReps;
+            isTracking = true;
+            stopButton.disabled = false;
+            exerciseSelect.disabled = true;
+            targetRepsInput.disabled = true;
+            serverMessageSpan.textContent = "Initializing...";
+            connectWebSocket();
+        };
+
+        stopButton.onclick = () => {
+            stopTracking();
+        };
+
+        function stopTracking() {
+            isTracking = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                videoElement.srcObject = null;
+                canvasCtx.clearRect(0,0,canvasElement.width, canvasElement.height);
+            }
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            exerciseSelect.disabled = false;
+            targetRepsInput.disabled = false;
+            serverMessageSpan.textContent = "Tracking stopped. Select exercise and press Start.";
+            loader.style.display = 'none';
+            drawLandmarks([]);
+        }
+        
+        exerciseSelect.onchange = () => {
+             const selectedEx = exerciseSelect.value.replace('_',' ').toUpperCase();
+             currentExerciseSpan.textContent = selectedEx;
+            if (isTracking && socket && socket.connected) {
+                 selectExerciseInServer();
+            } 
+        };
+
+        targetRepsInput.onchange = () => {
+            currentTargetReps = parseInt(targetRepsInput.value) || 10;
+            displayTargetRepsSpan.textContent = currentTargetReps;
+        };
+
+        displayTargetRepsSpan.textContent = targetRepsInput.value;
+        currentExerciseSpan.textContent = exerciseSelect.value.replace('_',' ').toUpperCase();
+
+        window.addEventListener('beforeunload', () => {
+            if (socket && socket.connected) socket.disconnect();
+            if (stream) stream.getTracks().forEach(track => track.stop());
+        });
+
+    </script>
+</body>
+</html> 

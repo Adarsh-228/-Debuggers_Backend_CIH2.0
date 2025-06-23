@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,89 +18,121 @@
             justify-content: center;
             min-height: 100vh;
         }
+
         .container {
             background-color: #fff;
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
             text-align: center;
         }
+
         #videoContainer {
             position: relative;
-            width: 640px; /* Default, adjust as needed */
-            height: 480px; /* Default, adjust as needed */
+            width: 640px;
+            /* Default, adjust as needed */
+            height: 480px;
+            /* Default, adjust as needed */
             margin: 20px auto;
             border: 1px solid #ccc;
-            background-color: #000; /* Background for video area */
+            background-color: #000;
+            /* Background for video area */
         }
+
         #videoElement {
             width: 100%;
             height: 100%;
-            object-fit: cover; 
-            transform: scaleX(-1); /* Mirror effect for selfie view */
+            object-fit: cover;
+            transform: scaleX(-1);
+            /* Mirror effect for selfie view */
         }
+
         #canvasElement {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            transform: scaleX(-1); /* Mirror effect for selfie view - must match video */
+            transform: scaleX(-1);
+            /* Mirror effect for selfie view - must match video */
         }
-        .controls, .stats {
+
+        .controls,
+        .stats {
             margin-top: 15px;
         }
+
         .stats p {
             font-size: 1.2em;
             margin: 8px 0;
             color: #333;
         }
+
         .stats span {
             font-weight: bold;
             color: #007bff;
         }
-        select, input, button {
+
+        select,
+        input,
+        button {
             padding: 10px;
             margin: 5px;
             border-radius: 5px;
             border: 1px solid #ccc;
             font-size: 1em;
         }
+
         button {
             background-color: #007bff;
             color: white;
             cursor: pointer;
             transition: background-color 0.3s ease;
         }
+
         button:hover {
             background-color: #0056b3;
         }
+
         button:disabled {
             background-color: #ccc;
             cursor: not-allowed;
         }
+
         #serverMessage {
             margin-top: 10px;
             font-style: italic;
             color: #555;
-            min-height: 1.2em; /* Reserve space */
+            min-height: 1.2em;
+            /* Reserve space */
         }
+
         .loader {
-            border: 5px solid #f3f3f3; /* Light grey */
-            border-top: 5px solid #3498db; /* Blue */
+            border: 5px solid #f3f3f3;
+            /* Light grey */
+            border-top: 5px solid #3498db;
+            /* Blue */
             border-radius: 50%;
             width: 30px;
             height: 30px;
             animation: spin 1s linear infinite;
             margin: 10px auto;
-            display: none; /* Hidden by default */
+            display: none;
+            /* Hidden by default */
         }
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>AI Exercise Tracker</h1>
@@ -116,10 +149,10 @@
 
             <label for="targetReps">Target Reps:</label>
             <input type="number" id="targetReps" value="10" min="1">
-            
+
             <button id="startButton">Start Tracking</button>
             <button id="stopButton" disabled>Stop Tracking</button>
-            </div>
+        </div>
 
         <div id="videoContainer">
             <video id="videoElement" autoplay playsinline muted></video>
@@ -141,7 +174,7 @@
         const canvasElement = document.getElementById('canvasElement');
         const canvasCtx = canvasElement.getContext('2d');
         const loader = document.getElementById('loader');
-        
+
         const exerciseSelect = document.getElementById('exerciseSelect');
         const targetRepsInput = document.getElementById('targetReps');
         const startButton = document.getElementById('startButton');
@@ -211,7 +244,7 @@
                 loader.style.display = 'none';
                 serverMessageSpan.textContent = "Connected. Ready to track.";
                 selectExerciseInServer();
-                if(isTracking && !animationFrameId) {
+                if (isTracking && !animationFrameId) {
                     lastFrameSentTime = 0;
                     animationFrameId = requestAnimationFrame(processVideoFrame);
                 }
@@ -220,8 +253,8 @@
             socket.on('connection_ack', (data) => {
                 console.log("Socket.IO connection_ack:", data);
                 serverMessageSpan.textContent = data.message || "Connection Acknowledged. Select exercise & start.";
-                if(data.current_exercise) {
-                    currentExerciseSpan.textContent = data.current_exercise.replace('_',' ').toUpperCase();
+                if (data.current_exercise) {
+                    currentExerciseSpan.textContent = data.current_exercise.replace('_', ' ').toUpperCase();
                 }
             });
 
@@ -229,10 +262,10 @@
                 console.log("Socket.IO exercise_changed:", data);
                 serverMessageSpan.textContent = data.message;
                 if (data.current_exercise) {
-                    currentExerciseSpan.textContent = data.current_exercise.replace('_',' ').toUpperCase();
+                    currentExerciseSpan.textContent = data.current_exercise.replace('_', ' ').toUpperCase();
                 }
             });
-            
+
             socket.on('frame_processed', (data) => {
                 if (data.landmarks) {
                     drawLandmarks(data.landmarks);
@@ -242,7 +275,7 @@
                     if (data.exercise_status.reps >= currentTargetReps) {
                         serverMessageSpan.textContent = `Target of ${currentTargetReps} reps reached!`;
                         stopTracking();
-                        setTimeout(() => alert(`Congratulations! You completed ${currentTargetReps} reps of ${data.exercise_status.exercise_type.replace('_',' ').toUpperCase()}.`), 100);
+                        setTimeout(() => alert(`Congratulations! You completed ${currentTargetReps} reps of ${data.exercise_status.exercise_type.replace('_', ' ').toUpperCase()}.`), 100);
                     }
                     if (data.exercise_status.error) {
                         serverMessageSpan.textContent = "Processing Error: " + data.exercise_status.error;
@@ -267,20 +300,20 @@
                 console.log("Socket.IO disconnected:", reason);
                 loader.style.display = 'none';
                 serverMessageSpan.textContent = "Disconnected: " + reason + ". Please Start again.";
-                if (isTracking) { 
-                    stopTracking(); 
+                if (isTracking) {
+                    stopTracking();
                 }
-                 startButton.disabled = false; 
-                 stopButton.disabled = true;
-                 exerciseSelect.disabled = false;
-                 targetRepsInput.disabled = false;
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                exerciseSelect.disabled = false;
+                targetRepsInput.disabled = false;
             });
 
             socket.on('connect_error', (error) => {
                 console.error("Socket.IO connection error: ", error);
                 loader.style.display = 'none';
                 serverMessageSpan.textContent = "Connection error: " + error.message + ". Server might be down.";
-                startButton.disabled = false; 
+                startButton.disabled = false;
                 stopButton.disabled = true;
                 exerciseSelect.disabled = false;
                 targetRepsInput.disabled = false;
@@ -292,7 +325,7 @@
                 const selectedExercise = exerciseSelect.value;
                 socket.emit('message', { event_type: 'select_exercise', exercise_type: selectedExercise });
                 console.log("Emitted select_exercise event with: " + selectedExercise);
-                currentExerciseSpan.textContent = selectedExercise.replace('_',' ').toUpperCase();
+                currentExerciseSpan.textContent = selectedExercise.replace('_', ' ').toUpperCase();
                 currentRepsSpan.textContent = "0";
                 currentPositionSpan.textContent = "N/A";
                 currentAngleSpan.textContent = "N/A";
@@ -330,7 +363,7 @@
         }
 
         function updateExerciseStats(status) {
-            currentExerciseSpan.textContent = status.exercise_type.replace('_',' ').toUpperCase();
+            currentExerciseSpan.textContent = status.exercise_type.replace('_', ' ').toUpperCase();
             currentRepsSpan.textContent = status.reps;
             currentPositionSpan.textContent = status.position ? status.position.toUpperCase() : 'N/A';
             currentAngleSpan.textContent = status.angle !== undefined ? parseInt(status.angle) : 'N/A';
@@ -349,9 +382,9 @@
                 tempCanvas.width = videoElement.videoWidth;
                 tempCanvas.height = videoElement.videoHeight;
                 const tempCtx = tempCanvas.getContext('2d');
-                
+
                 tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
-                
+
                 const frameDataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
                 socket.emit('message', { event_type: 'process_frame', image_data: frameDataUrl });
             }
@@ -394,7 +427,7 @@
                 stream.getTracks().forEach(track => track.stop());
                 stream = null;
                 videoElement.srcObject = null;
-                canvasCtx.clearRect(0,0,canvasElement.width, canvasElement.height);
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             }
             startButton.disabled = false;
             stopButton.disabled = true;
@@ -404,13 +437,13 @@
             loader.style.display = 'none';
             drawLandmarks([]);
         }
-        
+
         exerciseSelect.onchange = () => {
-             const selectedEx = exerciseSelect.value.replace('_',' ').toUpperCase();
-             currentExerciseSpan.textContent = selectedEx;
+            const selectedEx = exerciseSelect.value.replace('_', ' ').toUpperCase();
+            currentExerciseSpan.textContent = selectedEx;
             if (isTracking && socket && socket.connected) {
-                 selectExerciseInServer();
-            } 
+                selectExerciseInServer();
+            }
         };
 
         targetRepsInput.onchange = () => {
@@ -419,7 +452,7 @@
         };
 
         displayTargetRepsSpan.textContent = targetRepsInput.value;
-        currentExerciseSpan.textContent = exerciseSelect.value.replace('_',' ').toUpperCase();
+        currentExerciseSpan.textContent = exerciseSelect.value.replace('_', ' ').toUpperCase();
 
         window.addEventListener('beforeunload', () => {
             if (socket && socket.connected) socket.disconnect();
@@ -428,4 +461,5 @@
 
     </script>
 </body>
-</html> 
+
+</html>

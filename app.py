@@ -819,7 +819,8 @@ def food_review():
         for item_id, food_name in food_items.items():
             # Search for the food item in the vector database
             query = f"Food name: {food_name}"
-            retrieved_docs = app.food_vectorstore.similarity_search(query, k=5) # Increased k
+            retrieved_docs = app.food_vectorstore.similarity_search(
+                query, k=5)  # Increased k
 
             # Initialize food_info with base data
             food_info = {
@@ -835,14 +836,16 @@ def food_review():
                     if food_name.lower() == doc_name_lower:
                         best_match = doc.metadata
                         exact_match_found = True
-                        print(f"Exact match found for '{food_name}': {doc.metadata.get('name')}")
+                        print(
+                            f"Exact match found for '{food_name}': {doc.metadata.get('name')}")
                         break
-                
+
                 # If no exact match found, fall back to the top semantic match
                 if not exact_match_found:
                     best_match = retrieved_docs[0].metadata
-                    print(f"No exact match for '{food_name}', using top semantic match: {best_match.get('name')}")
-                
+                    print(
+                        f"No exact match for '{food_name}', using top semantic match: {best_match.get('name')}")
+
                 food_info.update({
                     "calories": best_match.get("calories"),
                     "protein": best_match.get("protein"),
@@ -928,16 +931,17 @@ def food_review():
         
         Keep your response to 2-3 sentences focusing on nutritional value, balance, and health benefits.
         """
-        
+
         meal_review = ""  # Initialize to empty string
         try:
             review_response = gemma(
                 review_prompt, max_new_tokens=150, truncation=True, return_full_text=False)
             if review_response and isinstance(review_response, list) and review_response[0].get("generated_text"):
                 meal_review = review_response[0]["generated_text"].strip()
-            elif review_response: # Log if response format is unexpected but not an exception
-                print(f"Gemma review generation returned unexpected format: {review_response}")
-            else: # Log if response is None or empty
+            elif review_response:  # Log if response format is unexpected but not an exception
+                print(
+                    f"Gemma review generation returned unexpected format: {review_response}")
+            else:  # Log if response is None or empty
                 print("Gemma review generation failed or returned None/empty response.")
         except Exception as e:
             print(f"Error during Gemma meal review generation: {str(e)}")
@@ -1018,7 +1022,8 @@ def gemini_food_review_endpoint():
         # No OCR - use Gemini 1.5 Flash specifically for food identification
         # Instantiate Gemini 1.5 Flash model specifically for this endpoint
         try:
-            gemini_1_5_flash_model = genai.GenerativeModel('gemini-1.5-flash') # Explicitly use gemini-1.5-flash
+            gemini_1_5_flash_model = genai.GenerativeModel(
+                'gemini-1.5-flash')  # Explicitly use gemini-1.5-flash
         except Exception as e:
             print(f"Error instantiating Gemini 1.5 Flash model: {e}")
             return jsonify({"error": "Could not initialize Gemini 1.5 Flash model. Check model name and API key permissions."}), 503
@@ -1050,7 +1055,7 @@ def gemini_food_review_endpoint():
             Be specific with the food names and only include Indian food items visible in the image.
             """
 
-            response = gemini_1_5_flash_model.generate_content( # Use the specific gemini-1.5-flash model instance
+            response = gemini_1_5_flash_model.generate_content(  # Use the specific gemini-1.5-flash model instance
                 [gemini_prompt, image_part])
             gemini_text = response.text.strip()
 
@@ -1088,12 +1093,14 @@ def gemini_food_review_endpoint():
                     if food_name.lower() == doc_name_lower:
                         best_match = doc.metadata
                         exact_match_found = True
-                        print(f"Exact match found for '{food_name}': {doc.metadata.get('name')}")
+                        print(
+                            f"Exact match found for '{food_name}': {doc.metadata.get('name')}")
                         break
                 if not exact_match_found:
                     best_match = retrieved_docs[0].metadata
-                    print(f"No exact match for '{food_name}', using top semantic match: {best_match.get('name')}")
-                
+                    print(
+                        f"No exact match for '{food_name}', using top semantic match: {best_match.get('name')}")
+
                 food_info.update({
                     "calories": best_match.get("calories"),
                     "protein": best_match.get("protein"),
@@ -1142,18 +1149,22 @@ def gemini_food_review_endpoint():
                                 "folic_acid": nutrition_data.get("folic_acid", 15),
                                 "estimated": True
                             })
-                            total_calories += float(nutrition_data.get("calories", 100))
+                            total_calories += float(
+                                nutrition_data.get("calories", 100))
                             total_protein += float(nutrition_data.get("protein", 2))
                         except json.JSONDecodeError:
-                            food_info.update({"calories": 100, "protein": 2, "estimated": True, "error": "Gemma estimation JSON parse failed"})
+                            food_info.update(
+                                {"calories": 100, "protein": 2, "estimated": True, "error": "Gemma estimation JSON parse failed"})
                             total_calories += 100
                             total_protein += 2
                     else:
-                        food_info.update({"calories": 100, "protein": 2, "estimated": True, "error": "Gemma estimation no JSON found"})
+                        food_info.update(
+                            {"calories": 100, "protein": 2, "estimated": True, "error": "Gemma estimation no JSON found"})
                         total_calories += 100
                         total_protein += 2
                 else:
-                    food_info.update({"calories": 100, "protein": 2, "estimated": True, "error": "Gemma estimation failed"})
+                    food_info.update(
+                        {"calories": 100, "protein": 2, "estimated": True, "error": "Gemma estimation failed"})
                     total_calories += 100
                     total_protein += 2
             result.append(food_info)
@@ -1166,16 +1177,17 @@ def gemini_food_review_endpoint():
         
         Keep your response to 2-3 sentences focusing on nutritional value, balance, and health benefits.
         """
-        
+
         meal_review = ""  # Initialize to empty string
         try:
             review_response = gemma(
                 review_prompt, max_new_tokens=150, truncation=True, return_full_text=False)
             if review_response and isinstance(review_response, list) and review_response[0].get("generated_text"):
                 meal_review = review_response[0]["generated_text"].strip()
-            elif review_response: # Log if response format is unexpected but not an exception
-                print(f"Gemma review generation returned unexpected format: {review_response}")
-            else: # Log if response is None or empty
+            elif review_response:  # Log if response format is unexpected but not an exception
+                print(
+                    f"Gemma review generation returned unexpected format: {review_response}")
+            else:  # Log if response is None or empty
                 print("Gemma review generation failed or returned None/empty response.")
         except Exception as e:
             print(f"Error during Gemma meal review generation: {str(e)}")
@@ -1200,38 +1212,40 @@ def gemini_food_review_endpoint():
 def get_week_info():
     data = request.get_json()
     week = data.get("week")
-    
+
     if not week:
         return jsonify({"error": "Missing parameter: week"}), 400
-    
+
     try:
         week = int(week)
         if week < 1 or week > 40:
             return jsonify({"error": "Week must be between 1 and 40"}), 400
     except ValueError:
         return jsonify({"error": "Week must be an integer"}), 400
-    
+
     try:
         # Load timeline dataset with proper encoding handling
         if not hasattr(app, 'timeline_df'):
             try:
                 # Try different encodings if UTF-8 fails
-                app.timeline_df = pd.read_csv("timeline_dataset.csv", encoding='utf-8')
+                app.timeline_df = pd.read_csv(
+                    "timeline_dataset.csv", encoding='utf-8')
             except UnicodeDecodeError:
                 try:
                     # Try Latin-1 encoding which is more permissive
-                    app.timeline_df = pd.read_csv("timeline_dataset.csv", encoding='latin1')
+                    app.timeline_df = pd.read_csv(
+                        "timeline_dataset.csv", encoding='latin1')
                 except Exception as e:
                     # Fall back to an even more permissive encoding that replaces problematic characters
-                    app.timeline_df = pd.read_csv("timeline_dataset.csv", encoding='cp1252', 
-                                                 error_bad_lines=False, warn_bad_lines=True)
-            
+                    app.timeline_df = pd.read_csv("timeline_dataset.csv", encoding='cp1252',
+                                                  error_bad_lines=False, warn_bad_lines=True)
+
             # Create timeline vector store if not already created
             if not hasattr(app, 'timeline_vectorstore'):
                 # Create descriptions for embedding
                 timeline_descriptions = []
                 timeline_metadata = []
-                
+
                 for idx, row in app.timeline_df.iterrows():
                     desc = f"Week {row['Week']}: Problem: {row['Problem']}, Solution: {row['Solution']}"
                     timeline_descriptions.append(desc)
@@ -1241,23 +1255,24 @@ def get_week_info():
                         "solution": row['Solution'],
                         "row_index": idx
                     })
-                
+
                 # Initialize timeline vector store
                 if not hasattr(app, 'embeddings'):
-                    app.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-                
+                    app.embeddings = HuggingFaceEmbeddings(
+                        model_name="sentence-transformers/all-MiniLM-L6-v2")
+
                 app.timeline_vectorstore = FAISS.from_texts(
                     timeline_descriptions, app.embeddings, metadatas=timeline_metadata)
                 print("Timeline vector database created successfully")
-        
+
         # Filter dataset directly for the specific week
         week_data = app.timeline_df[app.timeline_df['Week'] == week]
-        
+
         # If direct filtering doesn't return results, use vector search as backup
         if week_data.empty:
             query = f"Pregnancy information for week {week}"
             results = app.timeline_vectorstore.similarity_search(query, k=3)
-            
+
             # Extract data from results
             problems_solutions = []
             for doc in results:
@@ -1276,7 +1291,7 @@ def get_week_info():
                     "problem": row['Problem'],
                     "solution": row['Solution']
                 })
-        
+
         # Use Gemma to generate fetus size and weight information
         size_weight_prompt = f"""
         Provide factual information about fetal development during week {week} of pregnancy.
@@ -1295,14 +1310,14 @@ def get_week_info():
         
         Be accurate, concise, and only include the JSON with no other text.
         """
-        
-        gemma_response = gemma(size_weight_prompt, max_new_tokens=300, 
-                              truncation=True, return_full_text=False)
-        
+
+        gemma_response = gemma(size_weight_prompt, max_new_tokens=300,
+                               truncation=True, return_full_text=False)
+
         fetal_info = {}
         if gemma_response and isinstance(gemma_response, list) and gemma_response[0].get("generated_text"):
             response_text = gemma_response[0]["generated_text"].strip()
-            
+
             # Extract JSON from response
             json_start = response_text.find('{')
             json_end = response_text.rfind('}') + 1
@@ -1321,20 +1336,20 @@ def get_week_info():
         else:
             fetal_info = {
                 "size": "Information not available",
-                "weight_grams": 0, 
+                "weight_grams": 0,
                 "weight_oz": 0,
                 "development": "Information not available"
             }
-        
+
         # Construct response
         response = {
             "week": week,
             "fetal_development": fetal_info,
             "common_issues": problems_solutions
         }
-        
+
         return jsonify(response)
-    
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1343,8 +1358,8 @@ def get_week_info():
 
 @app.route("/gemini_chatbot", methods=["POST"])
 def gemini_chatbot_endpoint():
-    data = request.get_json(silent=True) # Expects JSON
-    
+    data = request.get_json(silent=True)  # Expects JSON
+
     # This check ensures the data is JSON and has the 'text' field
     if not data or not isinstance(data, dict) or "text" not in data or not data["text"].strip():
         return jsonify({"error": "Invalid or missing JSON payload. Please send a JSON object with a non-empty 'text' field and ensure Content-Type is 'application/json'"}), 400
@@ -1353,12 +1368,12 @@ def gemini_chatbot_endpoint():
 
     try:
         system_prompt = "You are a pregnancy assistance that will answer all the question related to pregnancy and strictly adhere to the prompt user gives no fooling around give no other suggestions than pregnancy  "
-        
+
         chatbot_model = genai.GenerativeModel(
             'gemini-1.5-flash',
             system_instruction=system_prompt
         )
-        
+
         # For a simple text-in, text-out chat, you can directly send the content.
         response = chatbot_model.generate_content(user_text)
 
@@ -1379,6 +1394,117 @@ def gemini_chatbot_endpoint():
         import traceback
         traceback.print_exc()
         error_message = str(e)
+
+
+@app.route("/feedback_gemini", methods=["POST"])
+def get_feedback_gemini():
+    if not gemini_model_client:
+        return jsonify({"error": "Gemini client is not configured."}), 503
+    data = request.get_json()
+    week_pregnancy = data.get("week_pregnancy")
+    n_sets = data.get("n_sets")
+    time = data.get("time")
+    name = data.get("name", "")
+    if not all([week_pregnancy, n_sets, time]):
+        return jsonify({"error": "Missing parameters"}), 400
+    try:
+        week_pregnancy = int(week_pregnancy)
+        n_sets = int(n_sets)
+    except ValueError:
+        return jsonify({"error": "week_pregnancy and n_sets must be integers"}), 400
+    exact_matches = []
+    if name:
+        name_lower = name.lower().strip()
+        time_lower = time.lower().strip()
+        matches = df[(df['name'].str.lower() == name_lower) & (df['week'] == week_pregnancy)]
+        if not matches.empty:
+            time_matches = matches[matches['time of day'].str.lower() == time_lower]
+            filtered_matches = time_matches if not time_matches.empty else matches
+            for _, row in filtered_matches.iterrows():
+                exact_matches.append({
+                    "name": row['name'],
+                    "week": row['week'],
+                    "time": row['time of day'],
+                    "N": row['N'],
+                    "benefits": row['benefits'],
+                    "link": row['link'],
+                })
+    if exact_matches:
+        relevant_exercises = exact_matches
+    else:
+        if name:
+            query = f"Exercise name: {name}, Pregnancy week: {week_pregnancy}, Time of day: {time}"
+        else:
+            query = f"Exercises for pregnancy week: {week_pregnancy}, Time of day: {time}"
+        docs = vectorstore.similarity_search(query, k=4)
+        relevant_exercises = []
+        for doc in docs:
+            metadata = doc.metadata
+            if 'week' in metadata and metadata['week'] == week_pregnancy:
+                exercise_info = {
+                    "name": metadata['name'],
+                    "week": metadata['week'],
+                    "time": metadata['time'],
+                    "N": metadata['N'],
+                    "benefits": metadata['benefits'],
+                    "link": metadata['link']
+                }
+                relevant_exercises.append(exercise_info)
+        if not relevant_exercises and docs:
+            for doc in docs:
+                metadata = doc.metadata
+                exercise_info = {
+                    "name": metadata['name'],
+                    "week": metadata['week'],
+                    "time": metadata['time'],
+                    "N": metadata['N'],
+                    "benefits": metadata['benefits'],
+                    "link": metadata['link']
+                }
+                relevant_exercises.append(exercise_info)
+    context_parts = []
+    for ex in relevant_exercises:
+        context_parts.append(
+            f"Exercise: {ex['name']} for week {ex['week']} of pregnancy\n"+
+            f"  - Recommended time: {ex['time']}\n"+
+            f"  - Recommended sets/reps: {ex['N']}\n"+
+            f"  - Benefits: {ex['benefits']}\n"+
+            f"  - Link: {ex['link']}"
+        )
+    context = "\n\n".join(context_parts)
+    prompt = f"""EXERCISE FEEDBACK SYSTEM
+
+USER INFORMATION:
+- Exercise: {name if name else 'Not specified'}
+- Pregnancy week: {week_pregnancy}
+- Sets performed: {n_sets}
+- Time: {time}
+
+REFERENCE DATA:
+{context}
+
+TASK:
+Generate concise, objective exercise feedback for this pregnancy exercise routine.
+The feedback should:
+1. State what exercise was performed and at what pregnancy week
+2. Compare user's sets ({n_sets}) with recommended sets
+3. Explain exercise benefits during pregnancy
+4. Provide clear safety guidelines and modifications if needed
+5. Include links to resources for proper form
+
+FORMAT REQUIREMENTS:
+- Use factual, objective language (avoid "I think", "my opinion", etc.)
+- Keep complete sentences
+- Be concise but comprehensive
+- Ensure response is complete with no cut-off sentences
+"""
+    try:
+        response = gemini_model_client.generate_content(prompt)
+        response_content = response.text.strip() if response else ""
+    except Exception as e:
+        return jsonify({"error": "Error processing request with Gemini model", "details": str(e)}), 500
+    return jsonify({"feedback": response_content})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)

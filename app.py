@@ -954,33 +954,6 @@ def ai_dashboard_ui():
                 </div>
             </div>
 
-            <div class="chart-container">
-                <div class="chart-title">💬 Stakeholder Talking Points</div>
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
-                    <h4>When Someone Asks "How Do You Measure AI Quality?"</h4>
-                    
-                    <div style="background: #e7f3ff; padding: 15px; margin: 10px 0; border-radius: 5px;">
-                        <strong>🎯 Simple Answer:</strong><br>
-                        "We have a scientific scoring system that checks if our AI gives accurate, factual responses based on our verified exercise database. 
-                        Think of it like a fact-checker that grades the AI on how well it sticks to proven data instead of making things up."
-                    </div>
-                    
-                    <div style="background: #fff2e7; padding: 15px; margin: 10px 0; border-radius: 5px;">
-                        <strong>🔬 Technical Answer:</strong><br>
-                        "We use a multi-dimensional scoring algorithm that analyzes each AI response across 5 metrics: 
-                        hallucination detection, factual accuracy, semantic correctness, response structure, and dataset utilization. 
-                        Each response gets a 0-100% score with mathematical formulas that deduct points for specific types of errors."
-                    </div>
-                    
-                    <div style="background: #f0f8e7; padding: 15px; margin: 10px 0; border-radius: 5px;">
-                        <strong>📈 Business Answer:</strong><br>
-                        "This system ensures our AI maintains high quality and trustworthiness. We can prove with data that our AI 
-                        responses are X% accurate and only Y% of responses contain potential misinformation. This protects our users 
-                        and reduces liability risks."
-                    </div>
-                </div>
-            </div>
-
             <div class="issues-section">
                 <div class="chart-title">⚠️ Issues Detected</div>
                 <div id="issuesList"></div>

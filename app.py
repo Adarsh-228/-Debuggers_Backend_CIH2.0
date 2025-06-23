@@ -816,6 +816,12 @@ def ai_dashboard_ui():
         <div class="header">
             <h1>🤖 AI Response Quality Analytics</h1>
             <p>Real-time monitoring of AI hallucination, accuracy, and dataset utilization</p>
+            <div style="margin-top: 20px; background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; font-size: 0.9rem;">
+                <strong>📊 How We Measure AI Quality:</strong><br>
+                • <strong>Hallucination Detection:</strong> We check if AI contradicts our CSV dataset or makes unsupported claims<br>
+                • <strong>Accuracy Score:</strong> We verify how many CSV facts the AI correctly uses in responses<br>
+                • <strong>Dataset Usage:</strong> We track when AI uses our exercise database vs. making up information
+            </div>
         </div>
 
         <div id="loading" class="loading">
@@ -878,6 +884,99 @@ def ai_dashboard_ui():
                     <div class="model-stat">
                         <span>Hallucination Rate:</span>
                         <span id="gemmaHallucination">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">🔬 Technical Methodology</div>
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4>📋 What to Tell Stakeholders About Our AI Quality Measurement:</h4>
+                    
+                    <div style="margin: 15px 0;">
+                        <strong>1. Hallucination Detection Algorithm:</strong><br>
+                        • Starts with 100% trust score<br>
+                        • Deducts 30% if AI ignores the correct exercise name from our database<br>
+                        • Deducts 20% if AI provides wrong sets/reps numbers<br>
+                        • Deducts 10% for each unsupported medical claim (like "studies show...")<br>
+                        • <em>Formula: Final Score = 100% - (sum of all deductions)</em>
+                    </div>
+                    
+                    <div style="margin: 15px 0;">
+                        <strong>2. Accuracy Measurement:</strong><br>
+                        • We check 6 key fields: exercise name, sets, benefits, intensity, muscles, equipment<br>
+                        • Count how many CSV facts appear correctly in AI response<br>
+                        • <em>Formula: Accuracy = (Correct Facts Used / Total Available Facts) × 100%</em>
+                    </div>
+                    
+                    <div style="margin: 15px 0;">
+                        <strong>3. Quality Assurance Process:</strong><br>
+                        • Each AI response gets scored on 5 dimensions (0-100%)<br>
+                        • Weighted average: Hallucination (30%) + Accuracy (25%) + Semantics (20%) + Structure (15%) + CSV Usage (10%)<br>
+                        • All scores stored with timestamps for trend analysis
+                    </div>
+                    
+                    <div style="margin: 15px 0; padding: 10px; background: #e3f2fd; border-left: 4px solid #2196f3;">
+                        <strong>💡 Key Insight:</strong> Higher scores mean AI is more reliable and factual. 
+                        Scores below 70% indicate potential issues that need investigation.
+                    </div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">📐 Mathematical Breakdown</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div style="background: #fff3e0; padding: 15px; border-radius: 8px;">
+                        <h5>🧮 Hallucination Score Calculation</h5>
+                        <code style="background: #f5f5f5; padding: 10px; display: block; margin: 10px 0; border-radius: 4px;">
+                            initial_score = 1.0<br>
+                            if (wrong_exercise_name): score -= 0.3<br>
+                            if (wrong_sets_reps): score -= 0.2<br>
+                            for each unsupported_claim: score -= 0.1<br>
+                            final_score = max(0, min(1, score))
+                        </code>
+                    </div>
+                    <div style="background: #e8f5e8; padding: 15px; border-radius: 8px;">
+                        <h5>📊 Accuracy Score Formula</h5>
+                        <code style="background: #f5f5f5; padding: 10px; display: block; margin: 10px 0; border-radius: 4px;">
+                            checkable_fields = 6<br>
+                            correct_matches = count_matches()<br>
+                            accuracy = correct_matches / checkable_fields<br>
+                            percentage = accuracy × 100%
+                        </code>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: #f0f0f0; border-radius: 8px;">
+                    <strong>Example Calculation:</strong><br>
+                    If AI response mentions 4 out of 6 available CSV facts correctly → Accuracy = 4/6 = 66.7%<br>
+                    If AI uses wrong exercise name → Hallucination = 100% - 30% = 70%<br>
+                    Overall Quality = (70% × 0.3) + (66.7% × 0.25) + ... = Combined weighted score
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">💬 Stakeholder Talking Points</div>
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                    <h4>When Someone Asks "How Do You Measure AI Quality?"</h4>
+                    
+                    <div style="background: #e7f3ff; padding: 15px; margin: 10px 0; border-radius: 5px;">
+                        <strong>🎯 Simple Answer:</strong><br>
+                        "We have a scientific scoring system that checks if our AI gives accurate, factual responses based on our verified exercise database. 
+                        Think of it like a fact-checker that grades the AI on how well it sticks to proven data instead of making things up."
+                    </div>
+                    
+                    <div style="background: #fff2e7; padding: 15px; margin: 10px 0; border-radius: 5px;">
+                        <strong>🔬 Technical Answer:</strong><br>
+                        "We use a multi-dimensional scoring algorithm that analyzes each AI response across 5 metrics: 
+                        hallucination detection, factual accuracy, semantic correctness, response structure, and dataset utilization. 
+                        Each response gets a 0-100% score with mathematical formulas that deduct points for specific types of errors."
+                    </div>
+                    
+                    <div style="background: #f0f8e7; padding: 15px; margin: 10px 0; border-radius: 5px;">
+                        <strong>📈 Business Answer:</strong><br>
+                        "This system ensures our AI maintains high quality and trustworthiness. We can prove with data that our AI 
+                        responses are X% accurate and only Y% of responses contain potential misinformation. This protects our users 
+                        and reduces liability risks."
                     </div>
                 </div>
             </div>
@@ -2638,7 +2737,7 @@ IMPORTANT:
             try:
                 parsed_response = json.loads(json_str)
                 
-                # AI Response Quality Analysis
+                # AI Response Quality Analysis (for internal tracking only)
                 user_data = {
                     "name": name,
                     "week_pregnancy": week_pregnancy,
@@ -2648,16 +2747,6 @@ IMPORTANT:
                 csv_data_used = relevant_exercises[0] if relevant_exercises else None
                 analysis = analyze_ai_response_quality(user_data, parsed_response, csv_data_used, "gemini", "/feedback_gemini")
                 
-                # Add analytics metadata to response
-                parsed_response["_analytics"] = {
-                    "quality_score": round(analysis["quality_score"] * 100, 1),
-                    "hallucination_score": round(analysis["hallucination_score"] * 100, 1),
-                    "accuracy_score": round(analysis["accuracy_score"] * 100, 1),
-                    "csv_data_used": bool(csv_data_used),
-                    "semantic_score": round(analysis["semantic_score"] * 100, 1),
-                    "structure_score": round(analysis["structure_score"] * 100, 1)
-                }
-                
                 return jsonify(parsed_response)
             except json.JSONDecodeError as e:
                 return jsonify({
@@ -2666,7 +2755,7 @@ IMPORTANT:
                     "raw_response": response_content
                 }), 500
         else:
-            # AI Analytics for non-JSON response
+            # AI Analytics for non-JSON response (internal tracking only)
             user_data = {
                 "name": name,
                 "week_pregnancy": week_pregnancy,
@@ -2678,13 +2767,7 @@ IMPORTANT:
             
             return jsonify({
                 "error": "No valid JSON structure found in response",
-                "raw_response": response_content,
-                "_analytics": {
-                    "quality_score": round(analysis["quality_score"] * 100, 1),
-                    "hallucination_score": round(analysis["hallucination_score"] * 100, 1),
-                    "accuracy_score": round(analysis["accuracy_score"] * 100, 1),
-                    "csv_data_used": bool(csv_data_used)
-                }
+                "raw_response": response_content
             }), 500
 
     except Exception as e:

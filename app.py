@@ -13,10 +13,489 @@ from PIL import Image, ImageEnhance, ImageFilter
 import google.generativeai as genai  # Added for Gemini
 import io  # Added import
 import json  # Added import
+import time  # Added for performance tracking
+import datetime  # Added for timestamp tracking
+from collections import defaultdict  # Added for statistics tracking
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# --- AI Response Quality Analytics System ---
+ai_response_analytics = {
+    "total_responses": 0,
+    "hallucination_detection": {
+        "total_analyzed": 0,
+        "hallucinated_responses": 0,
+        "accuracy_score": 0.0,
+        "csv_data_usage_rate": 0.0
+    },
+    "semantic_accuracy": {
+        "exercise_name_accuracy": 0.0,
+        "week_accuracy": 0.0,
+        "recommendation_accuracy": 0.0,
+        "safety_info_accuracy": 0.0
+    },
+    "response_quality": {
+        "structured_responses": 0,
+        "malformed_responses": 0,
+        "complete_responses": 0,
+        "missing_fields": []
+    },
+    "dataset_utilization": {
+        "csv_exact_match_rate": 0.0,
+        "rag_fallback_rate": 0.0,
+        "no_data_responses": 0,
+        "fields_used_correctly": {}
+    },
+    "model_performance": {
+        "gemini_accuracy": 0.0,
+        "gemma_accuracy": 0.0,
+        "response_consistency": 0.0
+    },
+    "detailed_analysis": []
+}
+
+def analyze_ai_response_quality(user_input, ai_response, csv_data_used, model_type, endpoint):
+    """Analyze AI response for hallucination, accuracy, and quality"""
+    global ai_response_analytics
+    
+    analysis = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "endpoint": endpoint,
+        "model_type": model_type,
+        "user_input": user_input,
+        "csv_data_found": bool(csv_data_used),
+        "hallucination_score": 0.0,
+        "accuracy_score": 0.0,
+        "quality_score": 0.0,
+        "issues_detected": []
+    }
+    
+    # 1. HALLUCINATION DETECTION
+    hallucination_score = detect_hallucination(ai_response, csv_data_used, user_input)
+    analysis["hallucination_score"] = hallucination_score
+    
+    # 2. ACCURACY ANALYSIS
+    accuracy_score = measure_response_accuracy(ai_response, csv_data_used, user_input)
+    analysis["accuracy_score"] = accuracy_score
+    
+    # 3. SEMANTIC CORRECTNESS
+    semantic_score = check_semantic_correctness(ai_response, csv_data_used, user_input)
+    analysis["semantic_score"] = semantic_score
+    
+    # 4. RESPONSE STRUCTURE QUALITY
+    structure_score = validate_response_structure(ai_response)
+    analysis["structure_score"] = structure_score
+    
+    # 5. CSV DATA USAGE ANALYSIS
+    csv_usage_score = analyze_csv_data_usage(ai_response, csv_data_used)
+    analysis["csv_usage_score"] = csv_usage_score
+    
+    # Calculate overall quality score
+    analysis["quality_score"] = (
+        hallucination_score * 0.3 + 
+        accuracy_score * 0.25 + 
+        semantic_score * 0.2 + 
+        structure_score * 0.15 + 
+        csv_usage_score * 0.1
+    )
+    
+    # Update global analytics
+    update_ai_analytics(analysis)
+    
+    # Store detailed analysis (keep last 500)
+    ai_response_analytics["detailed_analysis"].append(analysis)
+    if len(ai_response_analytics["detailed_analysis"]) > 500:
+        ai_response_analytics["detailed_analysis"] = ai_response_analytics["detailed_analysis"][-500:]
+    
+    return analysis
+
+def detect_hallucination(ai_response, csv_data, user_input):
+    """Detect if AI is hallucinating information not in CSV data"""
+    hallucination_score = 1.0  # Start with perfect score
+    
+    try:
+        # If CSV data exists, check if AI response contradicts it
+        if csv_data:
+            # Check if AI mentions data not in CSV
+            csv_fields = ['name', 'N', 'benefits', 'contraindications', 'modifications', 
+                         'intensity', 'rest_interval', 'equipment_needed', 'primary_muscles',
+                         'safety_tips', 'fitness_level', 'medical_clearance', 
+                         'progression_guidelines', 'postpartum_relevance']
+            
+            response_text = str(ai_response).lower()
+            
+            # Check for specific CSV field values
+            for field in csv_fields:
+                csv_value = str(csv_data.get(field, '')).lower()
+                if csv_value and csv_value != 'nan' and len(csv_value) > 2:
+                    # If AI contradicts CSV data
+                    if csv_value in response_text:
+                        continue  # Good, using CSV data
+                    else:
+                        # Check if AI is making up different information
+                        if field == 'N' and 'sets' in response_text or 'reps' in response_text:
+                            # Look for number contradictions
+                            import re
+                            numbers = re.findall(r'\d+', response_text)
+                            csv_number = str(csv_data.get('N', ''))
+                            if csv_number and csv_number not in numbers:
+                                hallucination_score -= 0.2
+            
+            # Check for made-up exercise names
+            csv_exercise_name = str(csv_data.get('name', '')).lower()
+            if csv_exercise_name and csv_exercise_name not in response_text:
+                hallucination_score -= 0.3
+                
+        else:
+            # No CSV data found - check if AI is making specific claims
+            response_text = str(ai_response).lower()
+            suspicious_phrases = [
+                'studies show', 'research indicates', 'according to experts',
+                'clinical trials', 'medical guidelines recommend'
+            ]
+            for phrase in suspicious_phrases:
+                if phrase in response_text:
+                    hallucination_score -= 0.1
+    
+    except Exception as e:
+        hallucination_score = 0.5  # Neutral score on error
+    
+    return max(0.0, min(1.0, hallucination_score))
+
+def measure_response_accuracy(ai_response, csv_data, user_input):
+    """Measure how accurate the AI response is compared to CSV data"""
+    accuracy_score = 0.0
+    
+    try:
+        if not csv_data:
+            return 0.3  # Low score if no CSV data used
+        
+        response_text = str(ai_response).lower()
+        correct_matches = 0
+        total_checkable = 0
+        
+        # Check key fields for accuracy
+        checkable_fields = {
+            'name': user_input.get('name', ''),
+            'N': 'sets',
+            'benefits': 'benefit',
+            'intensity': 'intensity',
+            'primary_muscles': 'muscle',
+            'equipment_needed': 'equipment'
+        }
+        
+        for field, keyword in checkable_fields.items():
+            csv_value = str(csv_data.get(field, '')).lower()
+            if csv_value and csv_value != 'nan' and len(csv_value) > 2:
+                total_checkable += 1
+                if keyword in response_text and csv_value in response_text:
+                    correct_matches += 1
+        
+        if total_checkable > 0:
+            accuracy_score = correct_matches / total_checkable
+        else:
+            accuracy_score = 0.5
+            
+    except Exception as e:
+        accuracy_score = 0.5
+    
+    return max(0.0, min(1.0, accuracy_score))
+
+def check_semantic_correctness(ai_response, csv_data, user_input):
+    """Check semantic correctness of AI response"""
+    semantic_score = 1.0
+    
+    try:
+        response_text = str(ai_response).lower()
+        
+        # Check for logical consistency
+        if 'week_pregnancy' in user_input:
+            week = user_input['week_pregnancy']
+            
+            # Check trimester consistency
+            if week <= 12 and '2nd trimester' in response_text:
+                semantic_score -= 0.3
+            elif week > 12 and week <= 27 and '3rd trimester' in response_text:
+                semantic_score -= 0.3
+            elif week > 27 and '1st trimester' in response_text:
+                semantic_score -= 0.3
+        
+        # Check for contradictory statements
+        contradictions = [
+            ('low intensity', 'high intensity'),
+            ('not recommended', 'highly recommended'),
+            ('avoid', 'perform regularly')
+        ]
+        
+        for contradiction in contradictions:
+            if contradiction[0] in response_text and contradiction[1] in response_text:
+                semantic_score -= 0.2
+                
+    except Exception as e:
+        semantic_score = 0.5
+    
+    return max(0.0, min(1.0, semantic_score))
+
+def validate_response_structure(ai_response):
+    """Validate if response follows expected structure"""
+    structure_score = 0.0
+    
+    try:
+        if isinstance(ai_response, dict):
+            # JSON response structure validation
+            expected_sections = [
+                'exercise_analysis', 'technical_details', 'safety_guidelines',
+                'benefits_and_progression', 'recommendations', 'summary'
+            ]
+            
+            present_sections = sum(1 for section in expected_sections if section in ai_response)
+            structure_score = present_sections / len(expected_sections)
+            
+        else:
+            # Text response quality check
+            response_text = str(ai_response)
+            if len(response_text) > 50:
+                structure_score = 0.7  # Basic text response
+            if len(response_text) > 200:
+                structure_score = 0.8  # Detailed text response
+                
+    except Exception as e:
+        structure_score = 0.1
+    
+    return max(0.0, min(1.0, structure_score))
+
+def analyze_csv_data_usage(ai_response, csv_data):
+    """Analyze how well AI uses CSV data"""
+    usage_score = 0.0
+    
+    try:
+        if not csv_data:
+            return 0.0
+        
+        response_text = str(ai_response).lower()
+        csv_fields_used = 0
+        total_available_fields = 0
+        
+        important_fields = [
+            'name', 'N', 'benefits', 'contraindications', 'modifications',
+            'safety_tips', 'equipment_needed', 'primary_muscles'
+        ]
+        
+        for field in important_fields:
+            csv_value = str(csv_data.get(field, '')).lower()
+            if csv_value and csv_value != 'nan' and len(csv_value) > 2:
+                total_available_fields += 1
+                # Check if this CSV data appears in AI response
+                if csv_value in response_text or any(word in response_text for word in csv_value.split()):
+                    csv_fields_used += 1
+        
+        if total_available_fields > 0:
+            usage_score = csv_fields_used / total_available_fields
+        
+    except Exception as e:
+        usage_score = 0.0
+    
+    return max(0.0, min(1.0, usage_score))
+
+def update_ai_analytics(analysis):
+    """Update global AI analytics with new analysis"""
+    global ai_response_analytics
+    
+    ai_response_analytics["total_responses"] += 1
+    
+    # Update hallucination detection
+    ai_response_analytics["hallucination_detection"]["total_analyzed"] += 1
+    if analysis["hallucination_score"] < 0.7:
+        ai_response_analytics["hallucination_detection"]["hallucinated_responses"] += 1
+    
+    # Update accuracy (running average)
+    current_avg = ai_response_analytics["hallucination_detection"]["accuracy_score"]
+    new_score = analysis["accuracy_score"]
+    total = ai_response_analytics["total_responses"]
+    ai_response_analytics["hallucination_detection"]["accuracy_score"] = (
+        (current_avg * (total - 1) + new_score) / total
+    )
+    
+    # Update CSV usage rate
+    if analysis["csv_data_found"]:
+        current_usage = ai_response_analytics["hallucination_detection"]["csv_data_usage_rate"]
+        ai_response_analytics["hallucination_detection"]["csv_data_usage_rate"] = (
+            (current_usage * (total - 1) + analysis["csv_usage_score"]) / total
+        )
+    
+    # Update model performance
+    model_type = analysis["model_type"]
+    if model_type == "gemini":
+        current_accuracy = ai_response_analytics["model_performance"]["gemini_accuracy"]
+        ai_response_analytics["model_performance"]["gemini_accuracy"] = (
+            (current_accuracy * (total - 1) + analysis["quality_score"]) / total
+        )
+    elif model_type == "gemma":
+        current_accuracy = ai_response_analytics["model_performance"]["gemma_accuracy"]
+        ai_response_analytics["model_performance"]["gemma_accuracy"] = (
+            (current_accuracy * (total - 1) + analysis["quality_score"]) / total
+        )
+
+# --- API Statistics and Tracking System ---
+api_call_stats = {
+    "total_calls": 0,
+    "successful_calls": 0,
+    "failed_calls": 0,
+    "calls_by_endpoint": defaultdict(int),
+    "calls_by_hour": defaultdict(int),
+    "response_times": [],
+    "accuracy_metrics": {
+        "exact_csv_matches": 0,
+        "rag_fallbacks": 0,
+        "semantic_search_accuracy": [],
+        "dataset_utilization_rate": 0
+    },
+    "model_context_usage": {
+        "csv_data_used": 0,
+        "rag_retrievals": 0,
+        "empty_responses": 0,
+        "gemini_calls": 0,
+        "gemma_calls": 0
+    },
+    "semantic_search_stats": {
+        "total_searches": 0,
+        "avg_documents_retrieved": 0,
+        "week_match_accuracy": 0,
+        "time_match_accuracy": 0,
+        "exercise_name_accuracy": 0,
+        "similarity_scores": []
+    },
+    "detailed_calls": []  # Store detailed information about each call
+}
+
+def log_api_call(endpoint, request_data, response_data, execution_time, success, error_details=None, search_metrics=None):
+    """Log detailed API call information for statistics tracking"""
+    global api_call_stats
+    
+    current_time = datetime.datetime.now()
+    hour_key = current_time.strftime("%Y-%m-%d-%H")
+    
+    # Update basic counters
+    api_call_stats["total_calls"] += 1
+    api_call_stats["calls_by_endpoint"][endpoint] += 1
+    api_call_stats["calls_by_hour"][hour_key] += 1
+    api_call_stats["response_times"].append(execution_time)
+    
+    if success:
+        api_call_stats["successful_calls"] += 1
+    else:
+        api_call_stats["failed_calls"] += 1
+    
+    # Update model context usage
+    if search_metrics:
+        if search_metrics.get("exact_match_found"):
+            api_call_stats["accuracy_metrics"]["exact_csv_matches"] += 1
+            api_call_stats["model_context_usage"]["csv_data_used"] += 1
+        elif search_metrics.get("rag_used"):
+            api_call_stats["accuracy_metrics"]["rag_fallbacks"] += 1
+            api_call_stats["model_context_usage"]["rag_retrievals"] += 1
+        
+        if search_metrics.get("model_type") == "gemini":
+            api_call_stats["model_context_usage"]["gemini_calls"] += 1
+        elif search_metrics.get("model_type") == "gemma":
+            api_call_stats["model_context_usage"]["gemma_calls"] += 1
+        
+        # Update semantic search statistics
+        if search_metrics.get("documents_retrieved"):
+            api_call_stats["semantic_search_stats"]["total_searches"] += 1
+            docs_count = search_metrics["documents_retrieved"]
+            current_avg = api_call_stats["semantic_search_stats"]["avg_documents_retrieved"]
+            total_searches = api_call_stats["semantic_search_stats"]["total_searches"]
+            api_call_stats["semantic_search_stats"]["avg_documents_retrieved"] = (
+                (current_avg * (total_searches - 1) + docs_count) / total_searches
+            )
+        
+        # Track accuracy metrics
+        if search_metrics.get("week_matched"):
+            api_call_stats["semantic_search_stats"]["week_match_accuracy"] += 1
+        if search_metrics.get("time_matched"):
+            api_call_stats["semantic_search_stats"]["time_match_accuracy"] += 1
+        if search_metrics.get("exercise_name_matched"):
+            api_call_stats["semantic_search_stats"]["exercise_name_accuracy"] += 1
+        
+        if search_metrics.get("similarity_scores"):
+            api_call_stats["semantic_search_stats"]["similarity_scores"].extend(
+                search_metrics["similarity_scores"]
+            )
+    
+    # Store detailed call information (keep last 1000 calls)
+    call_detail = {
+        "timestamp": current_time.isoformat(),
+        "endpoint": endpoint,
+        "request_data": request_data,
+        "response_size": len(str(response_data)) if response_data else 0,
+        "execution_time": execution_time,
+        "success": success,
+        "error_details": error_details,
+        "search_metrics": search_metrics
+    }
+    
+    api_call_stats["detailed_calls"].append(call_detail)
+    
+    # Keep only last 1000 calls to prevent memory issues
+    if len(api_call_stats["detailed_calls"]) > 1000:
+        api_call_stats["detailed_calls"] = api_call_stats["detailed_calls"][-1000:]
+
+def calculate_accuracy_metrics():
+    """Calculate various accuracy and performance metrics"""
+    total_calls = api_call_stats["total_calls"]
+    if total_calls == 0:
+        return {}
+    
+    # Calculate success rate
+    success_rate = (api_call_stats["successful_calls"] / total_calls) * 100
+    
+    # Calculate dataset utilization rate
+    csv_usage = api_call_stats["model_context_usage"]["csv_data_used"]
+    rag_usage = api_call_stats["model_context_usage"]["rag_retrievals"]
+    dataset_utilization = ((csv_usage + rag_usage) / total_calls) * 100 if total_calls > 0 else 0
+    
+    # Calculate semantic search accuracy
+    total_searches = api_call_stats["semantic_search_stats"]["total_searches"]
+    week_accuracy = (api_call_stats["semantic_search_stats"]["week_match_accuracy"] / total_searches * 100) if total_searches > 0 else 0
+    time_accuracy = (api_call_stats["semantic_search_stats"]["time_match_accuracy"] / total_searches * 100) if total_searches > 0 else 0
+    name_accuracy = (api_call_stats["semantic_search_stats"]["exercise_name_accuracy"] / total_searches * 100) if total_searches > 0 else 0
+    
+    # Calculate average response time
+    avg_response_time = np.mean(api_call_stats["response_times"]) if api_call_stats["response_times"] else 0
+    
+    # Calculate similarity score statistics
+    similarity_scores = api_call_stats["semantic_search_stats"]["similarity_scores"]
+    similarity_stats = {
+        "avg_similarity": np.mean(similarity_scores) if similarity_scores else 0,
+        "min_similarity": np.min(similarity_scores) if similarity_scores else 0,
+        "max_similarity": np.max(similarity_scores) if similarity_scores else 0,
+        "std_similarity": np.std(similarity_scores) if similarity_scores else 0
+    }
+    
+    return {
+        "overall_accuracy": {
+            "success_rate": round(success_rate, 2),
+            "dataset_utilization_rate": round(dataset_utilization, 2),
+            "avg_response_time_ms": round(avg_response_time * 1000, 2)
+        },
+        "semantic_search_accuracy": {
+            "week_match_accuracy": round(week_accuracy, 2),
+            "time_match_accuracy": round(time_accuracy, 2),
+            "exercise_name_accuracy": round(name_accuracy, 2),
+            "total_searches_performed": total_searches,
+            "avg_documents_per_search": round(api_call_stats["semantic_search_stats"]["avg_documents_retrieved"], 2)
+        },
+        "similarity_score_analysis": similarity_stats,
+        "model_performance": {
+            "exact_csv_matches_percentage": round((csv_usage / total_calls * 100), 2) if total_calls > 0 else 0,
+            "rag_fallback_percentage": round((rag_usage / total_calls * 100), 2) if total_calls > 0 else 0,
+            "gemini_usage_percentage": round((api_call_stats["model_context_usage"]["gemini_calls"] / total_calls * 100), 2) if total_calls > 0 else 0,
+            "gemma_usage_percentage": round((api_call_stats["model_context_usage"]["gemma_calls"] / total_calls * 100), 2) if total_calls > 0 else 0
+        }
+    }
 
 # --- Configuration for Tesseract (Optional, if not in PATH) ---
 # If Tesseract is not in your system PATH, uncomment and set the path below:
@@ -170,15 +649,525 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/ai_analytics", methods=["GET"])
+def ai_analytics_dashboard():
+    """AI Response Quality Analytics Dashboard"""
+    try:
+        # Calculate hallucination rate
+        total_analyzed = ai_response_analytics["hallucination_detection"]["total_analyzed"]
+        hallucinated = ai_response_analytics["hallucination_detection"]["hallucinated_responses"]
+        hallucination_rate = (hallucinated / total_analyzed * 100) if total_analyzed > 0 else 0
+        
+        # Get recent analysis for trends
+        recent_analysis = ai_response_analytics["detailed_analysis"][-50:] if ai_response_analytics["detailed_analysis"] else []
+        
+        # Calculate score averages
+        if recent_analysis:
+            avg_hallucination = sum(a["hallucination_score"] for a in recent_analysis) / len(recent_analysis)
+            avg_accuracy = sum(a["accuracy_score"] for a in recent_analysis) / len(recent_analysis)
+            avg_semantic = sum(a["semantic_score"] for a in recent_analysis) / len(recent_analysis)
+            avg_structure = sum(a["structure_score"] for a in recent_analysis) / len(recent_analysis)
+            avg_csv_usage = sum(a["csv_usage_score"] for a in recent_analysis) / len(recent_analysis)
+            avg_quality = sum(a["quality_score"] for a in recent_analysis) / len(recent_analysis)
+        else:
+            avg_hallucination = avg_accuracy = avg_semantic = avg_structure = avg_csv_usage = avg_quality = 0.0
+        
+        # Model comparison
+        gemini_responses = [a for a in recent_analysis if a["model_type"] == "gemini"]
+        gemma_responses = [a for a in recent_analysis if a["model_type"] == "gemma"]
+        
+        gemini_avg_quality = sum(r["quality_score"] for r in gemini_responses) / len(gemini_responses) if gemini_responses else 0
+        gemma_avg_quality = sum(r["quality_score"] for r in gemma_responses) / len(gemma_responses) if gemma_responses else 0
+        
+        # CSV data utilization analysis
+        csv_used_responses = [a for a in recent_analysis if a["csv_data_found"]]
+        csv_utilization_rate = (len(csv_used_responses) / len(recent_analysis) * 100) if recent_analysis else 0
+        
+        response_data = {
+            "dashboard_overview": {
+                "total_ai_responses_analyzed": ai_response_analytics["total_responses"],
+                "overall_quality_score": round(avg_quality * 100, 1),
+                "hallucination_rate_percentage": round(hallucination_rate, 1),
+                "csv_data_utilization_rate": round(csv_utilization_rate, 1),
+                "last_updated": datetime.datetime.now().isoformat()
+            },
+            "hallucination_analysis": {
+                "detection_accuracy": round(avg_hallucination * 100, 1),
+                "total_hallucinations_detected": hallucinated,
+                "clean_responses": total_analyzed - hallucinated,
+                "hallucination_trends": [
+                    {
+                        "timestamp": a["timestamp"],
+                        "score": round(a["hallucination_score"] * 100, 1),
+                        "model": a["model_type"]
+                    } for a in recent_analysis[-20:]
+                ]
+            },
+            "accuracy_metrics": {
+                "response_accuracy_score": round(avg_accuracy * 100, 1),
+                "semantic_correctness_score": round(avg_semantic * 100, 1),
+                "structure_quality_score": round(avg_structure * 100, 1),
+                "csv_data_usage_score": round(avg_csv_usage * 100, 1)
+            },
+            "model_performance_comparison": {
+                "gemini": {
+                    "total_responses": len(gemini_responses),
+                    "average_quality_score": round(gemini_avg_quality * 100, 1),
+                    "hallucination_rate": round(sum(1 for r in gemini_responses if r["hallucination_score"] < 0.7) / len(gemini_responses) * 100, 1) if gemini_responses else 0
+                },
+                "gemma": {
+                    "total_responses": len(gemma_responses),
+                    "average_quality_score": round(gemma_avg_quality * 100, 1),
+                    "hallucination_rate": round(sum(1 for r in gemma_responses if r["hallucination_score"] < 0.7) / len(gemma_responses) * 100, 1) if gemma_responses else 0
+                }
+            },
+            "dataset_utilization_analysis": {
+                "responses_using_csv_data": len(csv_used_responses),
+                "responses_without_csv_data": len(recent_analysis) - len(csv_used_responses),
+                "csv_field_usage_breakdown": {
+                    "exercise_name_usage": round(sum(1 for a in csv_used_responses if "name" in str(a.get("user_input", {}))) / len(csv_used_responses) * 100, 1) if csv_used_responses else 0,
+                    "sets_reps_accuracy": round(sum(1 for a in csv_used_responses if a["accuracy_score"] > 0.8) / len(csv_used_responses) * 100, 1) if csv_used_responses else 0,
+                    "safety_info_inclusion": round(sum(1 for a in csv_used_responses if a["csv_usage_score"] > 0.6) / len(csv_used_responses) * 100, 1) if csv_used_responses else 0
+                }
+            },
+            "quality_trends": {
+                "last_20_responses": [
+                    {
+                        "timestamp": a["timestamp"],
+                        "overall_quality": round(a["quality_score"] * 100, 1),
+                        "hallucination_score": round(a["hallucination_score"] * 100, 1),
+                        "accuracy_score": round(a["accuracy_score"] * 100, 1),
+                        "model": a["model_type"],
+                        "csv_used": a["csv_data_found"]
+                    } for a in recent_analysis[-20:]
+                ]
+            },
+            "issues_detected": {
+                "common_problems": [
+                    "AI making up exercise recommendations not in CSV",
+                    "Incorrect trimester information",
+                    "Missing safety guidelines from dataset",
+                    "Contradictory intensity recommendations"
+                ],
+                "recent_problem_responses": [
+                    {
+                        "timestamp": a["timestamp"],
+                        "model": a["model_type"],
+                        "quality_score": round(a["quality_score"] * 100, 1),
+                        "main_issue": "Low hallucination score" if a["hallucination_score"] < 0.7 else "Structure issues" if a["structure_score"] < 0.5 else "CSV data not used"
+                    } for a in recent_analysis if a["quality_score"] < 0.6
+                ][-10:]
+            }
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to generate AI analytics",
+            "details": str(e),
+            "basic_stats": {
+                "total_responses": ai_response_analytics["total_responses"],
+                "analysis_available": len(ai_response_analytics["detailed_analysis"])
+            }
+        }), 500
+
+@app.route("/ai_dashboard")
+def ai_dashboard_ui():
+    """AI Analytics Dashboard UI"""
+    html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Response Quality Analytics</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px; margin-bottom: 30px; text-align: center; }
+        .header h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .header p { font-size: 1.1rem; opacity: 0.9; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+        .stat-number { font-size: 2.5rem; font-weight: bold; margin-bottom: 5px; }
+        .stat-label { color: #666; font-size: 0.9rem; }
+        .excellent { color: #27ae60; }
+        .good { color: #2980b9; }
+        .warning { color: #f39c12; }
+        .danger { color: #e74c3c; }
+        .chart-container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 30px; }
+        .chart-title { font-size: 1.5rem; margin-bottom: 20px; color: #333; }
+        .model-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
+        .model-card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .model-title { font-size: 1.3rem; margin-bottom: 15px; text-align: center; }
+        .model-stat { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .issues-section { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .issue-item { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin-bottom: 10px; }
+        .refresh-btn { background: #667eea; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-size: 1rem; margin: 20px 0; }
+        .refresh-btn:hover { background: #5a67d8; }
+        .loading { text-align: center; padding: 50px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI Response Quality Analytics</h1>
+            <p>Real-time monitoring of AI hallucination, accuracy, and dataset utilization</p>
+        </div>
+
+        <div id="loading" class="loading">
+            <h3>Loading AI Analytics...</h3>
+        </div>
+
+        <div id="dashboard" style="display: none;">
+            <button class="refresh-btn" onclick="loadDashboard()">🔄 Refresh Data</button>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number excellent" id="qualityScore">--</div>
+                    <div class="stat-label">Overall Quality Score</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="hallucinationRate">--</div>
+                    <div class="stat-label">Hallucination Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number good" id="csvUsage">--</div>
+                    <div class="stat-label">CSV Data Usage</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalResponses">--</div>
+                    <div class="stat-label">Total Responses Analyzed</div>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">📈 Quality Trends (Last 20 Responses)</div>
+                <canvas id="qualityChart" width="400" height="200"></canvas>
+            </div>
+
+            <div class="model-comparison">
+                <div class="model-card">
+                    <div class="model-title">🔮 Gemini Performance</div>
+                    <div class="model-stat">
+                        <span>Quality Score:</span>
+                        <span id="geminiQuality" class="good">--</span>
+                    </div>
+                    <div class="model-stat">
+                        <span>Responses:</span>
+                        <span id="geminiResponses">--</span>
+                    </div>
+                    <div class="model-stat">
+                        <span>Hallucination Rate:</span>
+                        <span id="geminiHallucination">--</span>
+                    </div>
+                </div>
+                <div class="model-card">
+                    <div class="model-title">⚡ Gemma Performance</div>
+                    <div class="model-stat">
+                        <span>Quality Score:</span>
+                        <span id="gemmaQuality" class="good">--</span>
+                    </div>
+                    <div class="model-stat">
+                        <span>Responses:</span>
+                        <span id="gemmaResponses">--</span>
+                    </div>
+                    <div class="model-stat">
+                        <span>Hallucination Rate:</span>
+                        <span id="gemmaHallucination">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="issues-section">
+                <div class="chart-title">⚠️ Issues Detected</div>
+                <div id="issuesList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let qualityChart;
+
+        async function loadDashboard() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('dashboard').style.display = 'none';
+            
+            try {
+                const response = await fetch('/ai_analytics');
+                const data = await response.json();
+                
+                // Update overview stats
+                document.getElementById('qualityScore').textContent = data.dashboard_overview.overall_quality_score + '%';
+                document.getElementById('hallucinationRate').textContent = data.dashboard_overview.hallucination_rate_percentage + '%';
+                document.getElementById('csvUsage').textContent = data.dashboard_overview.csv_data_utilization_rate + '%';
+                document.getElementById('totalResponses').textContent = data.dashboard_overview.total_ai_responses_analyzed;
+                
+                // Color code hallucination rate
+                const hallucinationEl = document.getElementById('hallucinationRate');
+                const hallucinationRate = data.dashboard_overview.hallucination_rate_percentage;
+                if (hallucinationRate < 5) hallucinationEl.className = 'stat-number excellent';
+                else if (hallucinationRate < 15) hallucinationEl.className = 'stat-number good';
+                else if (hallucinationRate < 30) hallucinationEl.className = 'stat-number warning';
+                else hallucinationEl.className = 'stat-number danger';
+                
+                // Update model comparison
+                document.getElementById('geminiQuality').textContent = data.model_performance_comparison.gemini.average_quality_score + '%';
+                document.getElementById('geminiResponses').textContent = data.model_performance_comparison.gemini.total_responses;
+                document.getElementById('geminiHallucination').textContent = data.model_performance_comparison.gemini.hallucination_rate + '%';
+                
+                document.getElementById('gemmaQuality').textContent = data.model_performance_comparison.gemma.average_quality_score + '%';
+                document.getElementById('gemmaResponses').textContent = data.model_performance_comparison.gemma.total_responses;
+                document.getElementById('gemmaHallucination').textContent = data.model_performance_comparison.gemma.hallucination_rate + '%';
+                
+                // Create quality trend chart
+                createQualityChart(data.quality_trends.last_20_responses);
+                
+                // Update issues list
+                updateIssuesList(data.issues_detected.recent_problem_responses);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+                
+            } catch (error) {
+                document.getElementById('loading').innerHTML = '<h3 style="color: red;">Error loading data: ' + error.message + '</h3>';
+            }
+        }
+
+        function createQualityChart(data) {
+            const ctx = document.getElementById('qualityChart').getContext('2d');
+            
+            if (qualityChart) {
+                qualityChart.destroy();
+            }
+            
+            qualityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map((_, i) => 'Response ' + (i + 1)),
+                    datasets: [{
+                        label: 'Overall Quality',
+                        data: data.map(d => d.overall_quality),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Hallucination Score',
+                        data: data.map(d => d.hallucination_score),
+                        borderColor: '#27ae60',
+                        backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Accuracy Score',
+                        data: data.map(d => d.accuracy_score),
+                        borderColor: '#2980b9',
+                        backgroundColor: 'rgba(41, 128, 185, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Score (%)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateIssuesList(issues) {
+            const issuesList = document.getElementById('issuesList');
+            if (issues.length === 0) {
+                issuesList.innerHTML = '<div class="issue-item" style="background: #d4edda; border-color: #c3e6cb;">✅ No critical issues detected recently!</div>';
+                return;
+            }
+            
+            issuesList.innerHTML = issues.map(issue => 
+                `<div class="issue-item">
+                    <strong>${issue.model.toUpperCase()}</strong> - Quality: ${issue.quality_score}% - ${issue.main_issue}
+                    <br><small>${new Date(issue.timestamp).toLocaleString()}</small>
+                </div>`
+            ).join('');
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadDashboard, 30000);
+        
+        // Initial load
+        loadDashboard();
+    </script>
+</body>
+</html>
+    """
+    return html_content
+
+@app.route("/api_stats", methods=["GET"])
+def get_api_statistics():
+    """Comprehensive API statistics and analytics endpoint"""
+    try:
+        # Calculate real-time accuracy metrics
+        accuracy_metrics = calculate_accuracy_metrics()
+        
+        # Get recent activity (last 24 hours)
+        current_time = datetime.datetime.now()
+        last_24h = current_time - datetime.timedelta(hours=24)
+        
+        recent_calls = [
+            call for call in api_call_stats["detailed_calls"]
+            if datetime.datetime.fromisoformat(call["timestamp"]) > last_24h
+        ]
+        
+        # Calculate hourly distribution for last 24 hours
+        hourly_distribution = {}
+        for i in range(24):
+            hour_time = current_time - datetime.timedelta(hours=i)
+            hour_key = hour_time.strftime("%Y-%m-%d-%H")
+            hourly_distribution[hour_time.strftime("%H:00")] = api_call_stats["calls_by_hour"].get(hour_key, 0)
+        
+        # Get top performing endpoints
+        endpoint_performance = dict(api_call_stats["calls_by_endpoint"])
+        
+        # Get recent errors
+        recent_errors = [
+            {
+                "timestamp": call["timestamp"],
+                "endpoint": call["endpoint"],
+                "error": call["error_details"],
+                "execution_time": call["execution_time"]
+            }
+            for call in recent_calls
+            if not call["success"] and call["error_details"]
+        ][-10:]  # Last 10 errors
+        
+        # Calculate performance percentiles
+        response_times = api_call_stats["response_times"]
+        performance_percentiles = {}
+        if response_times:
+            performance_percentiles = {
+                "p50": round(np.percentile(response_times, 50) * 1000, 2),
+                "p90": round(np.percentile(response_times, 90) * 1000, 2),
+                "p95": round(np.percentile(response_times, 95) * 1000, 2),
+                "p99": round(np.percentile(response_times, 99) * 1000, 2)
+            }
+        
+        # Get dataset coverage statistics
+        total_exercises_in_csv = len(df)
+        unique_exercises_accessed = len(set([
+            call["search_metrics"].get("exercise_name", "")
+            for call in api_call_stats["detailed_calls"]
+            if call.get("search_metrics") and call["search_metrics"].get("exercise_name")
+        ]))
+        
+        dataset_coverage = {
+            "total_exercises_in_dataset": total_exercises_in_csv,
+            "unique_exercises_accessed": unique_exercises_accessed,
+            "coverage_percentage": round((unique_exercises_accessed / total_exercises_in_csv * 100), 2) if total_exercises_in_csv > 0 else 0
+         }
+         
+        response_data = {
+             "api_overview": {
+                 "total_api_calls": api_call_stats["total_calls"],
+                 "successful_calls": api_call_stats["successful_calls"],
+                 "failed_calls": api_call_stats["failed_calls"],
+                 "calls_last_24h": len(recent_calls),
+                 "uptime_start": "Server restart needed to track uptime",
+                 "last_updated": current_time.isoformat()
+             },
+             "accuracy_and_performance": accuracy_metrics,
+             "dataset_utilization": {
+                 "total_exercises_in_dataset": dataset_coverage["total_exercises_in_dataset"],
+                 "unique_exercises_accessed": dataset_coverage["unique_exercises_accessed"],
+                 "coverage_percentage": dataset_coverage["coverage_percentage"],
+                "csv_direct_access": api_call_stats["model_context_usage"]["csv_data_used"],
+                "rag_semantic_search": api_call_stats["model_context_usage"]["rag_retrievals"],
+                "empty_or_failed_retrievals": api_call_stats["model_context_usage"]["empty_responses"]
+            },
+            "semantic_search_analysis": {
+                "total_searches": api_call_stats["semantic_search_stats"]["total_searches"],
+                "average_similarity_scores": {
+                    "mean": round(np.mean(api_call_stats["semantic_search_stats"]["similarity_scores"]), 4) if api_call_stats["semantic_search_stats"]["similarity_scores"] else 0,
+                    "std": round(np.std(api_call_stats["semantic_search_stats"]["similarity_scores"]), 4) if api_call_stats["semantic_search_stats"]["similarity_scores"] else 0,
+                    "min": round(np.min(api_call_stats["semantic_search_stats"]["similarity_scores"]), 4) if api_call_stats["semantic_search_stats"]["similarity_scores"] else 0,
+                    "max": round(np.max(api_call_stats["semantic_search_stats"]["similarity_scores"]), 4) if api_call_stats["semantic_search_stats"]["similarity_scores"] else 0
+                },
+                "search_effectiveness": {
+                    "week_matching_accuracy": round((api_call_stats["semantic_search_stats"]["week_match_accuracy"] / api_call_stats["semantic_search_stats"]["total_searches"] * 100), 2) if api_call_stats["semantic_search_stats"]["total_searches"] > 0 else 0,
+                    "time_matching_accuracy": round((api_call_stats["semantic_search_stats"]["time_match_accuracy"] / api_call_stats["semantic_search_stats"]["total_searches"] * 100), 2) if api_call_stats["semantic_search_stats"]["total_searches"] > 0 else 0,
+                    "exercise_name_accuracy": round((api_call_stats["semantic_search_stats"]["exercise_name_accuracy"] / api_call_stats["semantic_search_stats"]["total_searches"] * 100), 2) if api_call_stats["semantic_search_stats"]["total_searches"] > 0 else 0
+                }
+            },
+            "model_performance": {
+                "gemini_vs_gemma": {
+                    "gemini_calls": api_call_stats["model_context_usage"]["gemini_calls"],
+                    "gemma_calls": api_call_stats["model_context_usage"]["gemma_calls"],
+                    "gemini_percentage": round((api_call_stats["model_context_usage"]["gemini_calls"] / api_call_stats["total_calls"] * 100), 2) if api_call_stats["total_calls"] > 0 else 0,
+                    "gemma_percentage": round((api_call_stats["model_context_usage"]["gemma_calls"] / api_call_stats["total_calls"] * 100), 2) if api_call_stats["total_calls"] > 0 else 0
+                },
+                "response_time_analysis": {
+                    "average_ms": round(np.mean(response_times) * 1000, 2) if response_times else 0,
+                    "percentiles_ms": performance_percentiles,
+                    "fastest_response_ms": round(np.min(response_times) * 1000, 2) if response_times else 0,
+                    "slowest_response_ms": round(np.max(response_times) * 1000, 2) if response_times else 0
+                }
+            },
+            "endpoint_usage": {
+                "calls_by_endpoint": dict(endpoint_performance),
+                "hourly_distribution_last_24h": hourly_distribution
+            },
+            "error_analysis": {
+                "total_errors": api_call_stats["failed_calls"],
+                "error_rate_percentage": round((api_call_stats["failed_calls"] / api_call_stats["total_calls"] * 100), 2) if api_call_stats["total_calls"] > 0 else 0,
+                "recent_errors": recent_errors
+            },
+            "technical_details": {
+                "vector_store_status": "Active" if vectorstore else "Not initialized",
+                "csv_dataset_rows": len(df),
+                "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+                "similarity_search_k_value": 4,
+                "storage_limit": "Last 1000 detailed calls kept in memory"
+            }
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to generate API statistics",
+            "details": str(e),
+            "basic_stats": {
+                "total_calls": api_call_stats["total_calls"],
+                "successful_calls": api_call_stats["successful_calls"],
+                "failed_calls": api_call_stats["failed_calls"]
+            }
+        }), 500
+
+
 @app.route("/feedback", methods=["POST"])
 def get_feedback():
     data = request.get_json()
     week_pregnancy = data.get("week_pregnancy")
     n_sets = data.get("n_sets")
-    time = data.get("time")
+    time_val = data.get("time")
     name = data.get("name", "")
 
-    if not all([week_pregnancy, n_sets, time]):
+    # Ensure time_param alias for backward compatibility with prompt templates
+    time_param = time_val
+
+    if not all([week_pregnancy, n_sets, time_param]):
         return jsonify({"error": "Missing parameters"}), 400
 
     try:
@@ -191,7 +1180,7 @@ def get_feedback():
     exact_matches = []
     if name:
         name_lower = name.lower().strip()
-        time_lower = time.lower().strip()
+        time_lower = time_param.lower().strip()
 
         # Filter dataframe for exact matches
         matches = df[(df['name'].str.lower() == name_lower)
@@ -233,9 +1222,9 @@ def get_feedback():
     else:
         # If no exact matches or no name provided, use RAG with enhanced query
         if name:
-            query = f"Exercise name: {name}, Pregnancy week: {week_pregnancy}, Time of day: {time}"
+            query = f"Exercise name: {name}, Pregnancy week: {week_pregnancy}, Time of day: {time_param}"
         else:
-            query = f"Exercises for pregnancy week: {week_pregnancy}, Time of day: {time}"
+            query = f"Exercises for pregnancy week: {week_pregnancy}, Time of day: {time_param}"
 
         # Retrieve relevant exercises using RAG
         docs = vectorstore.similarity_search(query, k=4)
@@ -314,7 +1303,7 @@ USER SESSION DATA:
 - Exercise Name: {name if name else 'Not specified'}
 - Pregnancy Week: {week_pregnancy}
 - Sets Performed: {n_sets}
-- Time of Day: {time}
+- Time of Day: {time_param}
 
 REFERENCE EXERCISE DATA:
 {exercise_data}
@@ -1444,14 +2433,17 @@ def gemini_chatbot_endpoint():
 def get_feedback_gemini():
     if not gemini_model_client:
         return jsonify({"error": "Gemini client is not configured."}), 503
-
+    
     data = request.get_json()
     week_pregnancy = data.get("week_pregnancy")
     n_sets = data.get("n_sets")
-    time = data.get("time")
+    time_val = data.get("time")
     name = data.get("name", "")
 
-    if not all([week_pregnancy, n_sets, time]):
+    # Ensure time_param alias for backward compatibility with prompt templates
+    time_param = time_val
+
+    if not all([week_pregnancy, n_sets, time_param]):
         return jsonify({"error": "Missing parameters"}), 400
 
     try:
@@ -1464,7 +2456,7 @@ def get_feedback_gemini():
     exact_matches = []
     if name:
         name_lower = name.lower().strip()
-        time_lower = time.lower().strip()
+        time_lower = time_param.lower().strip()
         matches = df[(df['name'].str.lower() == name_lower)
                      & (df['week'] == week_pregnancy)]
 
@@ -1502,9 +2494,9 @@ def get_feedback_gemini():
     else:
         # RAG fallback with enhanced metadata extraction
         if name:
-            query = f"Exercise name: {name}, Pregnancy week: {week_pregnancy}, Time of day: {time}"
+            query = f"Exercise name: {name}, Pregnancy week: {week_pregnancy}, Time of day: {time_param}"
         else:
-            query = f"Exercises for pregnancy week: {week_pregnancy}, Time of day: {time}"
+            query = f"Exercises for pregnancy week: {week_pregnancy}, Time of day: {time_param}"
 
         docs = vectorstore.similarity_search(query, k=4)
         relevant_exercises = []
@@ -1578,7 +2570,7 @@ USER SESSION DATA:
 - Exercise Name: {name if name else 'Not specified'}
 - Pregnancy Week: {week_pregnancy}
 - Sets Performed: {n_sets}
-- Time of Day: {time}
+- Time of Day: {time_param}
 
 REFERENCE EXERCISE DATA:
 {exercise_data}
@@ -1645,6 +2637,27 @@ IMPORTANT:
             json_str = response_content[json_start:json_end]
             try:
                 parsed_response = json.loads(json_str)
+                
+                # AI Response Quality Analysis
+                user_data = {
+                    "name": name,
+                    "week_pregnancy": week_pregnancy,
+                    "n_sets": n_sets,
+                    "time": time_param
+                }
+                csv_data_used = relevant_exercises[0] if relevant_exercises else None
+                analysis = analyze_ai_response_quality(user_data, parsed_response, csv_data_used, "gemini", "/feedback_gemini")
+                
+                # Add analytics metadata to response
+                parsed_response["_analytics"] = {
+                    "quality_score": round(analysis["quality_score"] * 100, 1),
+                    "hallucination_score": round(analysis["hallucination_score"] * 100, 1),
+                    "accuracy_score": round(analysis["accuracy_score"] * 100, 1),
+                    "csv_data_used": bool(csv_data_used),
+                    "semantic_score": round(analysis["semantic_score"] * 100, 1),
+                    "structure_score": round(analysis["structure_score"] * 100, 1)
+                }
+                
                 return jsonify(parsed_response)
             except json.JSONDecodeError as e:
                 return jsonify({
@@ -1653,9 +2666,25 @@ IMPORTANT:
                     "raw_response": response_content
                 }), 500
         else:
+            # AI Analytics for non-JSON response
+            user_data = {
+                "name": name,
+                "week_pregnancy": week_pregnancy,
+                "n_sets": n_sets,
+                "time": time_param
+            }
+            csv_data_used = relevant_exercises[0] if relevant_exercises else None
+            analysis = analyze_ai_response_quality(user_data, response_content, csv_data_used, "gemini", "/feedback_gemini")
+            
             return jsonify({
                 "error": "No valid JSON structure found in response",
-                "raw_response": response_content
+                "raw_response": response_content,
+                "_analytics": {
+                    "quality_score": round(analysis["quality_score"] * 100, 1),
+                    "hallucination_score": round(analysis["hallucination_score"] * 100, 1),
+                    "accuracy_score": round(analysis["accuracy_score"] * 100, 1),
+                    "csv_data_used": bool(csv_data_used)
+                }
             }), 500
 
     except Exception as e:

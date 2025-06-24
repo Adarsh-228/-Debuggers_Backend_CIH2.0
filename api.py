@@ -4,6 +4,12 @@ import numpy as np
 import pandas as pd
 import os
 from flask_cors import CORS
+import io
+from PIL import Image, ImageEnhance, ImageFilter
+import pytesseract
+import google.generativeai as genai
+from werkzeug.utils import secure_filename
+import json
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -18,8 +24,166 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+# Configure Gemini
+GEMINI_MODEL_NAME = "gemini-2.0-flash"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Upload configuration
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'tiff', 'bmp', 'webp', 'pdf'}
+
 app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 CORS(app)
+
+# Configure Tesseract (adjust path if needed)
+try:
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+except:
+    pass  # Use system PATH
+
+# Initialize Gemini
+try:
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_model_client = genai.GenerativeModel(GEMINI_MODEL_NAME)
+        print("Gemini client configured successfully")
+    else:
+        gemini_model_client = None
+        print("GEMINI_API_KEY not found. Image processing will be limited.")
+except Exception as e:
+    gemini_model_client = None
+    print(f"Error configuring Gemini: {e}")
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def process_medical_image(image_file, prediction_type="preterm"):
+    """Process medical image and extract structured data using Gemini"""
+    if not gemini_model_client:
+        return {"error": "Gemini not configured. Cannot process images."}, 400
+    
+    try:
+        # Convert image for Gemini
+        pil_image = Image.open(image_file.stream)
+        if pil_image.mode not in ['RGB', 'RGBA']:
+            pil_image = pil_image.convert('RGB')
+        
+        img_byte_arr = io.BytesIO()
+        pil_image.save(img_byte_arr, format='JPEG')
+        image_bytes = img_byte_arr.getvalue()
+        image_part = {"mime_type": "image/jpeg", "data": image_bytes}
+        
+        # Also try OCR as backup
+        ocr_text = ""
+        try:
+            # Enhance image for OCR
+            img_enhanced = pil_image.convert('L')
+            enhancer_contrast = ImageEnhance.Contrast(img_enhanced)
+            img_enhanced = enhancer_contrast.enhance(1.5)
+            img_enhanced = img_enhanced.filter(ImageFilter.SHARPEN)
+            ocr_text = pytesseract.image_to_string(img_enhanced)
+        except Exception as ocr_e:
+            print(f"OCR failed: {ocr_e}")
+        
+        # Create appropriate prompt based on prediction type
+        if prediction_type == "preterm":
+            prompt = """
+            You are a medical data extraction expert. Analyze this medical image/lab report and extract ALL relevant information for preterm birth risk assessment.
+            
+            Extract and return a JSON object with the following structure (use null for missing values):
+            {
+                "Hb [g/dl]": null,
+                "WBC [G/l]": null, 
+                "PLT [G/l]": null,
+                "HCT [%]": null,
+                "Age": null,
+                "No. of pregnancy": null,
+                "No. of deliveries": null,
+                "Week of sample collection": null,
+                "Height": null,
+                "Weight": null,
+                "BMI": null,
+                "Education [0-primary. 1-vocational. 2-higher]": null,
+                "Marital status [0-single. 1-married]": null,
+                "Gestational diabetes mellitus [0-no. 1-type 1. 2-type 2]": null,
+                "Gestational hypothyroidism [0-no.-1yes]": null,
+                "History of preterm labour [0-no.1-yes]": null,
+                "Smoking [0-no.1-yes]": null,
+                "History of surgical delivery [0-no.1-yes]": null,
+                "History of caesarean section [0-no.1-yes]": null,
+                "CRP": null,
+                "Week of delivery": null,
+                "Type of delivery [0-vaginal.1-c-section]": null
+            }
+            
+            Important notes:
+            - Extract exact numerical values where visible
+            - For categorical fields, use the specified coding (0/1/2)
+            - If BMI not shown but height/weight available, calculate it
+            - Look for lab values, patient demographics, medical history
+            - Be precise with units (g/dl, G/l, etc.)
+            """
+        else:  # maternal risk
+            prompt = """
+            You are a medical data extraction expert. Analyze this medical image/lab report and extract ALL relevant information for maternal risk assessment.
+            
+            Extract and return a JSON object with maternal health indicators. Look for:
+            - Age, systolic/diastolic blood pressure
+            - Blood sugar levels, body temperature
+            - Heart rate and other vital signs
+            - Any pregnancy-related measurements
+            
+            Return the data in a structured JSON format with appropriate field names and numerical values.
+            As:
+            {
+                "Age": int,
+                "SystolicBP": 140,
+                "DiastolicBP": 90,
+                "BS": 12.0,
+                "BodyTemp": 99.0,
+                "HeartRate": 85
+            }
+            """
+        
+        # Add OCR text to prompt if available
+        if ocr_text.strip():
+            prompt += f"\n\nOCR extracted text from image:\n{ocr_text}\n\nUse this text along with visual analysis to extract the medical data."
+        
+        # Generate response
+        response = gemini_model_client.generate_content([prompt, image_part])
+        gemini_text = response.text.strip()
+        
+        # Extract JSON from response
+        json_start = gemini_text.find('{')
+        json_end = gemini_text.rfind('}') + 1
+        
+        if json_start != -1 and json_end > json_start:
+            json_str = gemini_text[json_start:json_end]
+            try:
+                parsed_data = json.loads(json_str)
+                return parsed_data, 200
+            except json.JSONDecodeError as e:
+                return {
+                    "error": "Failed to parse medical data from image",
+                    "details": str(e),
+                    "raw_response": gemini_text,
+                    "ocr_text": ocr_text
+                }, 400
+        else:
+            return {
+                "error": "No structured data found in image",
+                "raw_response": gemini_text,
+                "ocr_text": ocr_text
+            }, 400
+            
+    except Exception as e:
+        return {
+            "error": f"Error processing medical image: {str(e)}",
+            "details": str(e)
+        }, 500
 
 class PretermBirthPredictor:
     def __init__(self, data_path='lab_results.csv'):
@@ -508,6 +672,147 @@ def predict_preterm():
     except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
+@app.route('/api/predict/preterm/image', methods=['POST'])
+def predict_preterm_from_image():
+    try:
+        # Check if image file is provided
+        if 'image' not in request.files:
+            return jsonify({"error": "No image file provided. Please upload an image with 'image' field."}), 400
+        
+        image_file = request.files['image']
+        if not image_file or not image_file.filename:
+            return jsonify({"error": "Image file is invalid or empty"}), 400
+        
+        if not allowed_file(image_file.filename):
+            return jsonify({"error": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+        
+        if not preterm_predictor.models:
+            return jsonify({"error": "Preterm birth models not available"}), 503
+        
+        # Process image to extract medical data
+        extracted_data, status_code = process_medical_image(image_file, "preterm")
+        
+        if status_code != 200:
+            return jsonify(extracted_data), status_code
+        
+        # Get model name from form data if specified
+        model_name = request.form.get('model', None)
+        
+        # Clean extracted data (remove null values)
+        clean_data = {k: v for k, v in extracted_data.items() if v is not None}
+        
+        if not clean_data:
+            return jsonify({
+                "error": "No valid medical data could be extracted from the image",
+                "extracted_data": extracted_data
+            }), 400
+        
+        # Make prediction
+        result = preterm_predictor.predict_preterm_risk(clean_data, model_name)
+        
+        if "error" in result:
+            return jsonify({
+                "error": result["error"],
+                "extracted_data": extracted_data
+            }), 400
+        
+        response = {
+            "success": True,
+            "extraction_method": "image_analysis",
+            "extracted_data": extracted_data,
+            "used_data": clean_data,
+            "predictions": result,
+            "prediction_type": "preterm_birth"
+        }
+        
+        # Add recommended model info
+        if preterm_predictor.best_model:
+            response["recommended_model"] = preterm_predictor.best_model
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+@app.route('/api/predict/maternal/image', methods=['POST'])
+def predict_maternal_from_image():
+    try:
+        # Check if image file is provided
+        if 'image' not in request.files:
+            return jsonify({"error": "No image file provided. Please upload an image with 'image' field."}), 400
+        
+        image_file = request.files['image']
+        if not image_file or not image_file.filename:
+            return jsonify({"error": "Image file is invalid or empty"}), 400
+        
+        if not allowed_file(image_file.filename):
+            return jsonify({"error": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+        
+        if not maternal_predictor.models:
+            return jsonify({"error": "Maternal risk models not available"}), 503
+        
+        # Process image to extract medical data
+        extracted_data, status_code = process_medical_image(image_file, "maternal")
+        
+        if status_code != 200:
+            return jsonify(extracted_data), status_code
+        
+        # Get model name from form data if specified
+        model_name = request.form.get('model', None)
+        
+        # For maternal risk, we need to convert to the expected format
+        # This will depend on what features the maternal model expects
+        required_features = maternal_predictor.model_info['feature_names'] if maternal_predictor.model_info else []
+        
+        if not required_features:
+            return jsonify({"error": "Maternal risk model feature names not available"}), 503
+        
+        # Convert extracted data to feature array
+        features = []
+        used_data = {}
+        
+        for feature in required_features:
+            if feature in extracted_data and extracted_data[feature] is not None:
+                features.append(float(extracted_data[feature]))
+                used_data[feature] = extracted_data[feature]
+            else:
+                # Use default/average values for missing features (could be improved)
+                features.append(0.0)
+        
+        if len(features) != len(required_features):
+            return jsonify({
+                "error": f"Expected {len(required_features)} features, could only extract {len(features)}",
+                "required_features": required_features,
+                "extracted_data": extracted_data
+            }), 400
+        
+        # Make prediction
+        result = maternal_predictor.predict_single(features, model_name)
+        
+        if "error" in result:
+            return jsonify({
+                "error": result["error"],
+                "extracted_data": extracted_data
+            }), 400
+        
+        response = {
+            "success": True,
+            "extraction_method": "image_analysis",
+            "extracted_data": extracted_data,
+            "used_features": dict(zip(required_features, features)),
+            "predictions": result,
+            "prediction_type": "maternal_risk"
+        }
+        
+        # Add recommended model info
+        if maternal_predictor.model_info and 'best_model' in maternal_predictor.model_info:
+            response["recommended_model"] = maternal_predictor.model_info['best_model']
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 @app.route('/api/models', methods=['GET'])
 def get_models():
     response = {
@@ -552,9 +857,19 @@ def health_check():
         "status": "healthy",
         "maternal_risk_models": len(maternal_predictor.models),
         "preterm_birth_models": len(preterm_predictor.models),
+        "gemini_configured": gemini_model_client is not None,
         "services": {
             "maternal_risk_prediction": len(maternal_predictor.models) > 0,
-            "preterm_birth_prediction": len(preterm_predictor.models) > 0
+            "preterm_birth_prediction": len(preterm_predictor.models) > 0,
+            "image_processing": gemini_model_client is not None
+        },
+        "endpoints": {
+            "maternal_risk_prediction": "/api/predict/maternal",
+            "maternal_risk_image_prediction": "/api/predict/maternal/image",
+            "preterm_birth_prediction": "/api/predict/preterm",
+            "preterm_birth_image_prediction": "/api/predict/preterm/image",
+            "models_info": "/api/models",
+            "health_check": "/api/health"
         }
     })
 
@@ -564,12 +879,19 @@ if __name__ == '__main__':
     print("="*60)
     print(f"Maternal Risk Models: {len(maternal_predictor.models)}")
     print(f"Preterm Birth Models: {len(preterm_predictor.models)}")
+    print(f"Gemini Image Processing: {'✓ Enabled' if gemini_model_client else '✗ Disabled'}")
     print("\nAvailable endpoints:")
     print("- GET  /: Home page")
-    print("- POST /api/predict/maternal: Maternal risk prediction")
-    print("- POST /api/predict/preterm: Preterm birth prediction")
+    print("- POST /api/predict/maternal: Maternal risk prediction (JSON)")
+    print("- POST /api/predict/maternal/image: Maternal risk prediction (Image)")
+    print("- POST /api/predict/preterm: Preterm birth prediction (JSON)")
+    print("- POST /api/predict/preterm/image: Preterm birth prediction (Image)")
     print("- GET  /api/models: Get all model information")
     print("- GET  /api/health: Health check")
+    print("\nImage Endpoints Support:")
+    print("- Medical reports, lab results, prescription images")
+    print("- Automatic data extraction using Gemini + OCR")
+    print("- Supported formats: PNG, JPG, JPEG, TIFF, BMP, WEBP, PDF")
     print("="*60)
     
     app.run(debug=True, host='0.0.0.0', port=5000) 

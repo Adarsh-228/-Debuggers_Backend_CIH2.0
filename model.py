@@ -10,6 +10,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
 from sklearn.utils.class_weight import compute_class_weight
 import warnings
+import pickle
+import os
 warnings.filterwarnings('ignore')
 
 print("Loading and preprocessing data...")
@@ -141,6 +143,35 @@ for model_name, (test_acc, cv_acc) in results.items():
         best_model = model_name
 
 print(f"\nBest performing model: {best_model} (CV Score: {best_score:.4f})")
+
+print("\n" + "="*50)
+print("SAVING MODELS AND SCALER")
+print("="*50)
+
+if not os.path.exists('saved_models'):
+    os.makedirs('saved_models')
+
+with open('saved_models/scaler.pkl', 'wb') as f:
+    pickle.dump(ss, f)
+
+for model_name, model in models.items():
+    filename = f'saved_models/{model_name.lower().replace(" ", "_")}_model.pkl'
+    with open(filename, 'wb') as f:
+        pickle.dump(model, f)
+    print(f"Saved {model_name} model to {filename}")
+
+model_info = {
+    'feature_names': list(X.columns),
+    'class_mapping': {0: 'low risk', 1: 'mid risk', 2: 'high risk'},
+    'reverse_mapping': RiskLevel,
+    'best_model': best_model,
+    'results': results
+}
+
+with open('saved_models/model_info.pkl', 'wb') as f:
+    pickle.dump(model_info, f)
+
+print("Saved model information and metadata")
 
 print("\n" + "="*50)
 print("RECOMMENDATIONS:")

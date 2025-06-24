@@ -4,461 +4,316 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Exercise Tracker</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+    <title>Maternal Risk Prediction API</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f0f0f0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-        }
-
-        .container {
-            background-color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
             padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
             text-align: center;
+            margin-bottom: 30px;
         }
-
-        #videoContainer {
-            position: relative;
-            width: 640px;
-            /* Default, adjust as needed */
-            height: 480px;
-            /* Default, adjust as needed */
-            margin: 20px auto;
-            border: 1px solid #ccc;
-            background-color: #000;
-            /* Background for video area */
+        .form-group {
+            margin-bottom: 20px;
         }
-
-        #videoElement {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1);
-            /* Mirror effect for selfie view */
-        }
-
-        #canvasElement {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            transform: scaleX(-1);
-            /* Mirror effect for selfie view - must match video */
-        }
-
-        .controls,
-        .stats {
-            margin-top: 15px;
-        }
-
-        .stats p {
-            font-size: 1.2em;
-            margin: 8px 0;
-            color: #333;
-        }
-
-        .stats span {
+        label {
+            display: block;
+            margin-bottom: 5px;
             font-weight: bold;
-            color: #007bff;
+            color: #34495e;
         }
-
-        select,
-        input,
-        button {
+        input[type="number"], select {
+            width: 100%;
             padding: 10px;
-            margin: 5px;
+            border: 2px solid #ddd;
             border-radius: 5px;
-            border: 1px solid #ccc;
-            font-size: 1em;
+            font-size: 16px;
+            box-sizing: border-box;
         }
-
+        input[type="number"]:focus, select:focus {
+            border-color: #3498db;
+            outline: none;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
         button {
-            background-color: #007bff;
-            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
             cursor: pointer;
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s;
         }
-
-        button:hover {
-            background-color: #0056b3;
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
         }
-
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
+        .btn-primary:hover {
+            background-color: #2980b9;
         }
-
-        #serverMessage {
-            margin-top: 10px;
-            font-style: italic;
-            color: #555;
-            min-height: 1.2em;
-            /* Reserve space */
+        .btn-secondary {
+            background-color: #95a5a6;
+            color: white;
         }
-
-        .loader {
-            border: 5px solid #f3f3f3;
-            /* Light grey */
-            border-top: 5px solid #3498db;
-            /* Blue */
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin: 10px auto;
+        .btn-secondary:hover {
+            background-color: #7f8c8d;
+        }
+        .results {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
             display: none;
-            /* Hidden by default */
         }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
+        .prediction-card {
+            background: white;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+        .prediction-card.low-risk {
+            border-left-color: #27ae60;
+        }
+        .prediction-card.mid-risk {
+            border-left-color: #f39c12;
+        }
+        .prediction-card.high-risk {
+            border-left-color: #e74c3c;
+        }
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+        }
+        .error {
+            color: #e74c3c;
+            background-color: #fadbd8;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .info-section {
+            background-color: #d5dbdb;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .feature-descriptions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+            font-size: 14px;
+            color: #5d6d7e;
         }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <h1>AI Exercise Tracker</h1>
-
-        <div class="controls">
-            <label for="exerciseSelect">Choose Exercise:</label>
-            <select id="exerciseSelect">
-                <option value="bicep_curl">Bicep Curls</option>
-                <option value="squat">Squats</option>
-                <option value="lateral_raise">Lateral Raises</option>
-                <option value="overhead_press">Overhead Press</option>
-                <option value="torso_twist">Torso Twists</option>
-            </select>
-
-            <label for="targetReps">Target Reps:</label>
-            <input type="number" id="targetReps" value="10" min="1">
-
-            <button id="startButton">Start Tracking</button>
-            <button id="stopButton" disabled>Stop Tracking</button>
+        <h1>🤰 Maternal Risk Prediction System</h1>
+        
+        <div class="info-section">
+            <h3>📋 Feature Information</h3>
+            <div class="feature-descriptions">
+                <div><strong>Age:</strong> Mother's age in years</div>
+                <div><strong>SystolicBP:</strong> Systolic blood pressure (mmHg)</div>
+                <div><strong>DiastolicBP:</strong> Diastolic blood pressure (mmHg)</div>
+                <div><strong>BS:</strong> Blood sugar level (mmol/L)</div>
+                <div><strong>BodyTemp:</strong> Body temperature (°F)</div>
+                <div><strong>HeartRate:</strong> Heart rate (beats per minute)</div>
+            </div>
         </div>
 
-        <div id="videoContainer">
-            <video id="videoElement" autoplay playsinline muted></video>
-            <canvas id="canvasElement"></canvas>
-        </div>
-        <div class="loader" id="loader"></div>
+        <form id="predictionForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="Age">Age (years):</label>
+                    <input type="number" id="Age" name="Age" min="10" max="70" step="1" value="25" required>
+                </div>
+                <div class="form-group">
+                    <label for="SystolicBP">Systolic BP (mmHg):</label>
+                    <input type="number" id="SystolicBP" name="SystolicBP" min="70" max="200" step="1" value="120" required>
+                </div>
+                <div class="form-group">
+                    <label for="DiastolicBP">Diastolic BP (mmHg):</label>
+                    <input type="number" id="DiastolicBP" name="DiastolicBP" min="50" max="120" step="1" value="80" required>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="BS">Blood Sugar (mmol/L):</label>
+                    <input type="number" id="BS" name="BS" min="5" max="25" step="0.1" value="7.0" required>
+                </div>
+                <div class="form-group">
+                    <label for="BodyTemp">Body Temperature (°F):</label>
+                    <input type="number" id="BodyTemp" name="BodyTemp" min="96" max="105" step="0.1" value="98.0" required>
+                </div>
+                <div class="form-group">
+                    <label for="HeartRate">Heart Rate (bpm):</label>
+                    <input type="number" id="HeartRate" name="HeartRate" min="60" max="120" step="1" value="75" required>
+                </div>
+            </div>
 
-        <div class="stats">
-            <p>Exercise: <span id="currentExercise">N/A</span></p>
-            <p>Reps: <span id="currentReps">0</span> / <span id="displayTargetReps">10</span></p>
-            <p>Status: <span id="currentPosition">N/A</span></p>
-            <p>Angle/Factor: <span id="currentAngle">N/A</span></p>
+            <div class="form-group">
+                <label for="model">Select Model (Optional):</label>
+                <select id="model" name="model">
+                    <option value="">All Models</option>
+                    {% for model in models %}
+                    <option value="{{ model }}">{{ model }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="button-group">
+                <button type="submit" class="btn-primary">🔮 Predict Risk</button>
+                <button type="button" class="btn-secondary" onclick="loadSampleData()">📝 Load Sample Data</button>
+                <button type="button" class="btn-secondary" onclick="clearForm()">🗑️ Clear Form</button>
+            </div>
+        </form>
+
+        <div id="results" class="results">
+            <h3>🎯 Prediction Results</h3>
+            <div id="resultsContent"></div>
         </div>
-        <p id="serverMessage">Not connected.</p>
     </div>
 
     <script>
-        const videoElement = document.getElementById('videoElement');
-        const canvasElement = document.getElementById('canvasElement');
-        const canvasCtx = canvasElement.getContext('2d');
-        const loader = document.getElementById('loader');
-
-        const exerciseSelect = document.getElementById('exerciseSelect');
-        const targetRepsInput = document.getElementById('targetReps');
-        const startButton = document.getElementById('startButton');
-        const stopButton = document.getElementById('stopButton');
-
-        const currentExerciseSpan = document.getElementById('currentExercise');
-        const currentRepsSpan = document.getElementById('currentReps');
-        const displayTargetRepsSpan = document.getElementById('displayTargetReps');
-        const currentPositionSpan = document.getElementById('currentPosition');
-        const currentAngleSpan = document.getElementById('currentAngle');
-        const serverMessageSpan = document.getElementById('serverMessage');
-
-        let socket = null;
-        let stream = null;
-        let animationFrameId = null;
-        let isTracking = false;
-        let currentTargetReps = 10;
-        let frameSendInterval = 200; // ms, approx 5 FPS. Lower for more FPS, higher for less.
-        let lastFrameSentTime = 0;
-
-        const POSE_CONNECTIONS = [
-            [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8], [9, 10],
-            [11, 12], [11, 23], [12, 24], [23, 24],
-            [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
-            [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20],
-            [23, 25], [25, 27], [27, 29], [27, 31], [29, 31],
-            [24, 26], [26, 28], [28, 30], [28, 32], [30, 32]
+        const sampleData = [
+            {name: "Low Risk Example", Age: 25, SystolicBP: 110, DiastolicBP: 70, BS: 6.5, BodyTemp: 98.0, HeartRate: 75},
+            {name: "Mid Risk Example", Age: 35, SystolicBP: 130, DiastolicBP: 85, BS: 8.0, BodyTemp: 99.0, HeartRate: 80},
+            {name: "High Risk Example", Age: 40, SystolicBP: 150, DiastolicBP: 95, BS: 15.0, BodyTemp: 100.0, HeartRate: 90}
         ];
 
-        async function setupCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+        let currentSample = 0;
+
+        function loadSampleData() {
+            const sample = sampleData[currentSample];
+            Object.keys(sample).forEach(key => {
+                if (key !== 'name') {
+                    const element = document.getElementById(key);
+                    if (element) element.value = sample[key];
+                }
+            });
+            currentSample = (currentSample + 1) % sampleData.length;
+            alert(`Loaded: ${sample.name}`);
+        }
+
+        function clearForm() {
+            document.getElementById('predictionForm').reset();
+            document.getElementById('results').style.display = 'none';
+        }
+
+        function getRiskClass(prediction) {
+            if (prediction.includes('low')) return 'low-risk';
+            if (prediction.includes('mid')) return 'mid-risk';
+            if (prediction.includes('high')) return 'high-risk';
+            return '';
+        }
+
+        function formatProbability(prob) {
+            if (!prob) return '';
+            return Object.entries(prob)
+                .map(([risk, value]) => `${risk}: ${(value * 100).toFixed(1)}%`)
+                .join(', ');
+        }
+
+        document.getElementById('predictionForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = {};
+            for (let [key, value] of formData.entries()) {
+                if (key !== 'model') {
+                    data[key] = parseFloat(value);
+                } else if (value) {
+                    data[key] = value;
+                }
             }
+
+            const resultsDiv = document.getElementById('results');
+            const resultsContent = document.getElementById('resultsContent');
+            
+            resultsDiv.style.display = 'block';
+            resultsContent.innerHTML = '<div class="loading">🔄 Making predictions...</div>';
+
             try {
-                serverMessageSpan.textContent = "Requesting camera access...";
-                loader.style.display = 'block';
-                stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
-                videoElement.srcObject = stream;
-                await new Promise((resolve) => videoElement.onloadedmetadata = resolve);
-                canvasElement.width = videoElement.videoWidth;
-                canvasElement.height = videoElement.videoHeight;
-                console.log(`Camera setup: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
-                serverMessageSpan.textContent = "Camera active.";
-            } catch (err) {
-                console.error("Error accessing webcam: ", err);
-                serverMessageSpan.textContent = "Error accessing webcam: " + err.message;
-                stream = null; // Ensure stream is null if setup failed
-            } finally {
-                loader.style.display = 'none';
-            }
-        }
+                const response = await fetch('/api/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
 
-        function connectWebSocket() {
-            if (socket && socket.connected) {
-                console.log("Socket.IO already connected.");
-                selectExerciseInServer();
-                return;
-            }
+                const result = await response.json();
 
-            const socketUrl = window.location.protocol + "//" + window.location.hostname + ":5000";
-            socket = io(socketUrl);
-            serverMessageSpan.textContent = "Connecting to server...";
-            loader.style.display = 'block';
+                if (result.success) {
+                    let html = '<div style="margin-bottom: 15px;"><strong>Input Values:</strong><br>';
+                    html += Object.entries(result.input_features)
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join(', ');
+                    html += '</div>';
 
-            socket.on('connect', () => {
-                console.log("Socket.IO connected: ", socket.id);
-                loader.style.display = 'none';
-                serverMessageSpan.textContent = "Connected. Ready to track.";
-                selectExerciseInServer();
-                if (isTracking && !animationFrameId) {
-                    lastFrameSentTime = 0;
-                    animationFrameId = requestAnimationFrame(processVideoFrame);
-                }
-            });
-
-            socket.on('connection_ack', (data) => {
-                console.log("Socket.IO connection_ack:", data);
-                serverMessageSpan.textContent = data.message || "Connection Acknowledged. Select exercise & start.";
-                if (data.current_exercise) {
-                    currentExerciseSpan.textContent = data.current_exercise.replace('_', ' ').toUpperCase();
-                }
-            });
-
-            socket.on('exercise_changed', (data) => {
-                console.log("Socket.IO exercise_changed:", data);
-                serverMessageSpan.textContent = data.message;
-                if (data.current_exercise) {
-                    currentExerciseSpan.textContent = data.current_exercise.replace('_', ' ').toUpperCase();
-                }
-            });
-
-            socket.on('frame_processed', (data) => {
-                if (data.landmarks) {
-                    drawLandmarks(data.landmarks);
-                }
-                if (data.exercise_status) {
-                    updateExerciseStats(data.exercise_status);
-                    if (data.exercise_status.reps >= currentTargetReps) {
-                        serverMessageSpan.textContent = `Target of ${currentTargetReps} reps reached!`;
-                        stopTracking();
-                        setTimeout(() => alert(`Congratulations! You completed ${currentTargetReps} reps of ${data.exercise_status.exercise_type.replace('_', ' ').toUpperCase()}.`), 100);
+                    if (result.recommended_model) {
+                        html += `<div style="margin-bottom: 15px; color: #2c3e50;"><strong>⭐ Recommended Model:</strong> ${result.recommended_model}</div>`;
                     }
-                    if (data.exercise_status.error) {
-                        serverMessageSpan.textContent = "Processing Error: " + data.exercise_status.error;
-                        loader.style.display = 'none';
+
+                    if (result.predictions.model) {
+                        const pred = result.predictions;
+                        html += `<div class="prediction-card ${getRiskClass(pred.prediction)}">
+                            <h4>🤖 ${pred.model} Model</h4>
+                            <p><strong>Prediction:</strong> ${pred.prediction.toUpperCase()}</p>
+                            ${pred.probability ? `<p><strong>Probabilities:</strong> ${formatProbability(pred.probability)}</p>` : ''}
+                        </div>`;
+                    } else {
+                        Object.entries(result.predictions).forEach(([model, pred]) => {
+                            html += `<div class="prediction-card ${getRiskClass(pred.prediction)}">
+                                <h4>🤖 ${model} Model</h4>
+                                <p><strong>Prediction:</strong> ${pred.prediction.toUpperCase()}</p>
+                                ${pred.probability ? `<p><strong>Probabilities:</strong> ${formatProbability(pred.probability)}</p>` : ''}
+                            </div>`;
+                        });
                     }
+
+                    resultsContent.innerHTML = html;
+                } else {
+                    resultsContent.innerHTML = `<div class="error">❌ Error: ${result.error}</div>`;
                 }
-            });
-
-            socket.on('server_error', (data) => {
-                console.error("Socket.IO server_error:", data);
-                serverMessageSpan.textContent = "Server Error: " + (data.message || JSON.stringify(data));
-                loader.style.display = 'none';
-            });
-
-            socket.on('error', (data) => {
-                console.error("Socket.IO generic error event:", data);
-                serverMessageSpan.textContent = "Error: " + (data.message || JSON.stringify(data));
-                loader.style.display = 'none';
-            });
-
-            socket.on('disconnect', (reason) => {
-                console.log("Socket.IO disconnected:", reason);
-                loader.style.display = 'none';
-                serverMessageSpan.textContent = "Disconnected: " + reason + ". Please Start again.";
-                if (isTracking) {
-                    stopTracking();
-                }
-                startButton.disabled = false;
-                stopButton.disabled = true;
-                exerciseSelect.disabled = false;
-                targetRepsInput.disabled = false;
-            });
-
-            socket.on('connect_error', (error) => {
-                console.error("Socket.IO connection error: ", error);
-                loader.style.display = 'none';
-                serverMessageSpan.textContent = "Connection error: " + error.message + ". Server might be down.";
-                startButton.disabled = false;
-                stopButton.disabled = true;
-                exerciseSelect.disabled = false;
-                targetRepsInput.disabled = false;
-            });
-        }
-
-        function selectExerciseInServer() {
-            if (socket && socket.connected) {
-                const selectedExercise = exerciseSelect.value;
-                socket.emit('message', { event_type: 'select_exercise', exercise_type: selectedExercise });
-                console.log("Emitted select_exercise event with: " + selectedExercise);
-                currentExerciseSpan.textContent = selectedExercise.replace('_', ' ').toUpperCase();
-                currentRepsSpan.textContent = "0";
-                currentPositionSpan.textContent = "N/A";
-                currentAngleSpan.textContent = "N/A";
-            } else {
-                console.warn("Cannot select exercise, Socket.IO not connected.");
-                serverMessageSpan.textContent = "Cannot select exercise. Not connected.";
+            } catch (error) {
+                resultsContent.innerHTML = `<div class="error">❌ Network error: ${error.message}</div>`;
             }
-        }
-
-        function drawLandmarks(landmarks) {
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            if (!landmarks || landmarks.length === 0) return;
-
-            landmarks.forEach(lm => {
-                const x = lm.x * canvasElement.width;
-                const y = lm.y * canvasElement.height;
-                canvasCtx.beginPath();
-                canvasCtx.arc(x, y, 5, 0, 2 * Math.PI);
-                canvasCtx.fillStyle = 'red';
-                canvasCtx.fill();
-            });
-
-            canvasCtx.strokeStyle = 'lime';
-            canvasCtx.lineWidth = 3;
-            POSE_CONNECTIONS.forEach(conn => {
-                if (conn[0] < landmarks.length && conn[1] < landmarks.length && landmarks[conn[0]] && landmarks[conn[1]]) {
-                    if (landmarks[conn[0]].visibility > 0.5 && landmarks[conn[1]].visibility > 0.5) {
-                        canvasCtx.beginPath();
-                        canvasCtx.moveTo(landmarks[conn[0]].x * canvasElement.width, landmarks[conn[0]].y * canvasElement.height);
-                        canvasCtx.lineTo(landmarks[conn[1]].x * canvasElement.width, landmarks[conn[1]].y * canvasElement.height);
-                        canvasCtx.stroke();
-                    }
-                }
-            });
-        }
-
-        function updateExerciseStats(status) {
-            currentExerciseSpan.textContent = status.exercise_type.replace('_', ' ').toUpperCase();
-            currentRepsSpan.textContent = status.reps;
-            currentPositionSpan.textContent = status.position ? status.position.toUpperCase() : 'N/A';
-            currentAngleSpan.textContent = status.angle !== undefined ? parseInt(status.angle) : 'N/A';
-        }
-
-        function processVideoFrame(timestamp) {
-            if (!isTracking || !socket || !socket.connected || !stream || !videoElement.videoWidth) {
-                if (isTracking) animationFrameId = requestAnimationFrame(processVideoFrame);
-                return;
-            }
-
-            if (timestamp - lastFrameSentTime > frameSendInterval) {
-                lastFrameSentTime = timestamp;
-
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = videoElement.videoWidth;
-                tempCanvas.height = videoElement.videoHeight;
-                const tempCtx = tempCanvas.getContext('2d');
-
-                tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
-
-                const frameDataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
-                socket.emit('message', { event_type: 'process_frame', image_data: frameDataUrl });
-            }
-            animationFrameId = requestAnimationFrame(processVideoFrame);
-        }
-
-        startButton.onclick = async () => {
-            if (isTracking) return;
-            startButton.disabled = true;
-            loader.style.display = 'block';
-
-            await setupCamera();
-            if (!stream) {
-                alert("Could not start camera. Please ensure permissions are granted and no other app is using the camera.");
-                startButton.disabled = false;
-                loader.style.display = 'none';
-                return;
-            }
-            currentTargetReps = parseInt(targetRepsInput.value) || 10;
-            displayTargetRepsSpan.textContent = currentTargetReps;
-            isTracking = true;
-            stopButton.disabled = false;
-            exerciseSelect.disabled = true;
-            targetRepsInput.disabled = true;
-            serverMessageSpan.textContent = "Initializing...";
-            connectWebSocket();
-        };
-
-        stopButton.onclick = () => {
-            stopTracking();
-        };
-
-        function stopTracking() {
-            isTracking = false;
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
-            }
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                stream = null;
-                videoElement.srcObject = null;
-                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            }
-            startButton.disabled = false;
-            stopButton.disabled = true;
-            exerciseSelect.disabled = false;
-            targetRepsInput.disabled = false;
-            serverMessageSpan.textContent = "Tracking stopped. Select exercise and press Start.";
-            loader.style.display = 'none';
-            drawLandmarks([]);
-        }
-
-        exerciseSelect.onchange = () => {
-            const selectedEx = exerciseSelect.value.replace('_', ' ').toUpperCase();
-            currentExerciseSpan.textContent = selectedEx;
-            if (isTracking && socket && socket.connected) {
-                selectExerciseInServer();
-            }
-        };
-
-        targetRepsInput.onchange = () => {
-            currentTargetReps = parseInt(targetRepsInput.value) || 10;
-            displayTargetRepsSpan.textContent = currentTargetReps;
-        };
-
-        displayTargetRepsSpan.textContent = targetRepsInput.value;
-        currentExerciseSpan.textContent = exerciseSelect.value.replace('_', ' ').toUpperCase();
-
-        window.addEventListener('beforeunload', () => {
-            if (socket && socket.connected) socket.disconnect();
-            if (stream) stream.getTracks().forEach(track => track.stop());
         });
 
+        window.addEventListener('load', async function() {
+            try {
+                const response = await fetch('/api/health');
+                const health = await response.json();
+                console.log('API Health:', health);
+            } catch (error) {
+                console.error('API not available:', error);
+            }
+        });
     </script>
 </body>
 

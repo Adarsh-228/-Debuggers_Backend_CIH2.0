@@ -140,11 +140,11 @@ def process_medical_image(image_file, prediction_type="preterm"):
             As:
             {
                 "Age": int,
-                "SystolicBP": 140,
-                "DiastolicBP": 90,
-                "BS": 12.0,
-                "BodyTemp": 99.0,
-                "HeartRate": 85
+                "SystolicBP": int,
+                "DiastolicBP": int,
+                "BS": float,
+                "BodyTemp": float,
+                "HeartRate": int
             }
             """
         
@@ -329,11 +329,16 @@ class PretermBirthPredictor:
                 'params': {'n_estimators': [100, 200], 'max_depth': [3, 5, 10]}
             },
             'XGBoost': {
-                'model': xgb.XGBClassifier(random_state=42, eval_metric='logloss'),
+                'model': xgb.XGBClassifier(
+                    random_state=42, 
+                    eval_metric='logloss',
+                    enable_categorical=False,
+                    use_label_encoder=False
+                ),
                 'params': {'n_estimators': [100, 200], 'max_depth': [3, 5], 'learning_rate': [0.1, 0.2]}
             },
             'CatBoost': {
-                'model': CatBoostClassifier(random_state=42, verbose=False, class_weights='Balanced'),
+                'model': CatBoostClassifier(random_state=42, verbose=False, auto_class_weights='Balanced'),
                 'params': {'iterations': [100, 200], 'depth': [4, 6], 'learning_rate': [0.1, 0.2]}
             }
         }
@@ -491,6 +496,11 @@ class MaternalRiskPredictor:
         self.scaler = None
         self.model_info = None
         self.load_models()
+        
+        # If models fail to load due to compatibility issues, retrain them
+        if not self.models and os.path.exists('maternal_dataset.csv'):
+            print("Models failed to load. Retraining with current XGBoost version...")
+            self.train_and_save_models()
     
     def load_models(self):
         try:
@@ -510,8 +520,22 @@ class MaternalRiskPredictor:
             
             for model_name, filename in model_files.items():
                 if os.path.exists(filename):
-                    with open(filename, 'rb') as f:
-                        self.models[model_name] = pickle.load(f)
+                    try:
+                        with open(filename, 'rb') as f:
+                            model = pickle.load(f)
+                            
+                        # Fix XGBoost compatibility issue
+                        if model_name == 'XGBoost' and hasattr(model, 'use_label_encoder'):
+                            print(f"Fixing XGBoost model compatibility...")
+                            # Remove the deprecated attribute
+                            delattr(model, 'use_label_encoder')
+                            
+                        self.models[model_name] = model
+                        
+                    except Exception as model_error:
+                        print(f"Error loading {model_name} model: {model_error}")
+                        # Skip this model but continue with others
+                        continue
             
             print(f"Loaded {len(self.models)} maternal risk models")
             
@@ -571,6 +595,136 @@ class MaternalRiskPredictor:
                 
         except Exception as e:
             return {"error": f"Prediction failed: {str(e)}"}
+    
+    def train_and_save_models(self):
+        """Train maternal risk models with current XGBoost version"""
+        try:
+            print("Training maternal risk models...")
+            
+            # Load and preprocess data
+            df = pd.read_csv('maternal_dataset.csv')
+            print(f"Dataset shape: {df.shape}")
+            
+            # Map risk levels
+            risk_level_mapping = {'low risk': 0, 'mid risk': 1, 'high risk': 2}
+            df['RiskLevel'] = df['RiskLevel'].map(risk_level_mapping).astype(float)
+            
+            X = df.drop('RiskLevel', axis=1)
+            y = df['RiskLevel']
+            
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.3, random_state=42, stratify=y
+            )
+            
+            # Scale features
+            self.scaler = StandardScaler()
+            X_train_scaled = self.scaler.fit_transform(X_train)
+            X_test_scaled = self.scaler.transform(X_test)
+            
+            # Define models with current XGBoost syntax
+            models_config = {
+                'SVM': {
+                    'model': SVC(class_weight='balanced', random_state=42, probability=True),
+                    'params': {'C': [0.1, 1, 10], 'gamma': ['scale', 'auto'], 'kernel': ['rbf', 'linear']}
+                },
+                                 'XGBoost': {
+                     'model': xgb.XGBClassifier(
+                         random_state=42, 
+                         eval_metric='mlogloss',
+                         enable_categorical=False,
+                         use_label_encoder=False
+                     ),
+                     'params': {'n_estimators': [100, 200], 'max_depth': [3, 5], 'learning_rate': [0.1, 0.2]}
+                 },
+                'Random Forest': {
+                    'model': RandomForestClassifier(class_weight='balanced', random_state=42),
+                    'params': {'n_estimators': [100, 200], 'max_depth': [10, 20]}
+                },
+                'Decision Tree': {
+                    'model': DecisionTreeClassifier(class_weight='balanced', random_state=42),
+                    'params': {'max_depth': [10, 20], 'min_samples_split': [2, 5]}
+                }
+            }
+            
+            # Train models
+            best_models = {}
+            results = {}
+            
+            for model_name, config in models_config.items():
+                print(f"Training {model_name}...")
+                
+                grid_search = GridSearchCV(
+                    config['model'], 
+                    config['params'], 
+                    cv=3, 
+                    scoring='accuracy',
+                    n_jobs=-1
+                )
+                
+                grid_search.fit(X_train_scaled, y_train)
+                best_model = grid_search.best_estimator_
+                
+                # Evaluate
+                test_acc = best_model.score(X_test_scaled, y_test)
+                cv_scores = cross_val_score(best_model, X_train_scaled, y_train, cv=5)
+                
+                print(f"{model_name} - Test Accuracy: {test_acc:.4f}, CV: {cv_scores.mean():.4f}")
+                
+                best_models[model_name] = best_model
+                results[model_name] = (test_acc, cv_scores.mean())
+            
+            # Create ensemble
+            top_models = sorted(results.items(), key=lambda x: x[1][1], reverse=True)[:3]
+            ensemble_estimators = [(name, best_models[name]) for name, _ in top_models]
+            ensemble_model = VotingClassifier(estimators=ensemble_estimators, voting='soft')
+            ensemble_model.fit(X_train_scaled, y_train)
+            
+            best_models['Ensemble'] = ensemble_model
+            test_acc = ensemble_model.score(X_test_scaled, y_test)
+            cv_scores = cross_val_score(ensemble_model, X_train_scaled, y_train, cv=5)
+            results['Ensemble'] = (test_acc, cv_scores.mean())
+            
+            print(f"Ensemble - Test Accuracy: {test_acc:.4f}, CV: {cv_scores.mean():.4f}")
+            
+            # Find best model
+            best_model_name = max(results.keys(), key=lambda x: results[x][1])
+            print(f"Best model: {best_model_name}")
+            
+            # Save models
+            if not os.path.exists('saved_models'):
+                os.makedirs('saved_models')
+            
+            with open('saved_models/scaler.pkl', 'wb') as f:
+                pickle.dump(self.scaler, f)
+            
+            for model_name, model in best_models.items():
+                filename = f'saved_models/{model_name.lower().replace(" ", "_")}_model.pkl'
+                with open(filename, 'wb') as f:
+                    pickle.dump(model, f)
+                print(f"Saved {model_name} model")
+            
+            # Save model info
+            model_info = {
+                'feature_names': list(X.columns),
+                'class_mapping': {0: 'low risk', 1: 'mid risk', 2: 'high risk'},
+                'reverse_mapping': risk_level_mapping,
+                'best_model': best_model_name,
+                'results': results
+            }
+            
+            with open('saved_models/model_info.pkl', 'wb') as f:
+                pickle.dump(model_info, f)
+            
+            # Update instance variables
+            self.models = best_models
+            self.model_info = model_info
+            
+            print("Maternal risk models retrained and saved successfully!")
+            
+        except Exception as e:
+            print(f"Error retraining models: {e}")
+            self.models = {}
 
 print("Initializing predictors...")
 maternal_predictor = MaternalRiskPredictor()
@@ -695,8 +849,10 @@ def predict_preterm_from_image():
         if status_code != 200:
             return jsonify(extracted_data), status_code
         
-        # Get model name from form data if specified
+        # Get model name from form data if specified (ensure empty string becomes None)
         model_name = request.form.get('model', None)
+        if model_name == "" or model_name == "null":
+            model_name = None
         
         # Clean extracted data (remove null values)
         clean_data = {k: v for k, v in extracted_data.items() if v is not None}
@@ -757,8 +913,10 @@ def predict_maternal_from_image():
         if status_code != 200:
             return jsonify(extracted_data), status_code
         
-        # Get model name from form data if specified
+        # Get model name from form data if specified (ensure empty string becomes None)
         model_name = request.form.get('model', None)
+        if model_name == "" or model_name == "null":
+            model_name = None
         
         # For maternal risk, we need to convert to the expected format
         # This will depend on what features the maternal model expects

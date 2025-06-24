@@ -212,7 +212,12 @@ class PretermBirthPredictor:
                 }
             },
             'XGBoost': {
-                'model': xgb.XGBClassifier(random_state=42, eval_metric='logloss'),
+                'model': xgb.XGBClassifier(
+                    random_state=42, 
+                    eval_metric='logloss',
+                    enable_categorical=False,
+                    use_label_encoder=False
+                ),
                 'params': {
                     'n_estimators': [100, 200],
                     'max_depth': [3, 4, 5, 6],
@@ -221,7 +226,7 @@ class PretermBirthPredictor:
                 }
             },
             'CatBoost': {
-                'model': CatBoostClassifier(random_state=42, verbose=False, auto_class_weights='Balanced'),
+                'model': CatBoostClassifier(random_state=42, verbose=False, class_weights='Balanced'),
                 'params': {
                     'iterations': [100, 200],
                     'depth': [4, 6, 8],

@@ -266,7 +266,7 @@ class PretermBirthPredictor:
             print(f"Could not load preterm birth models: {e}")
             return False
     
-    def predict_preterm_risk(self, patient_data):
+    def predict_preterm_risk(self, patient_data, model_name=None):
         if not self.models:
             return {"error": "No models loaded"}
         
@@ -280,21 +280,43 @@ class PretermBirthPredictor:
             patient_features = patient_df[self.feature_names]
             patient_scaled = self.scaler.transform(patient_features)
             
-            model = self.models[self.best_model]
-            prediction = model.predict(patient_scaled)[0]
-            
-            if hasattr(model, 'predict_proba'):
-                probability = model.predict_proba(patient_scaled)[0]
-                risk_probability = probability[1]
+            if model_name and model_name in self.models:
+                # Return prediction from specific model
+                model = self.models[model_name]
+                prediction = model.predict(patient_scaled)[0]
+                
+                if hasattr(model, 'predict_proba'):
+                    probability = model.predict_proba(patient_scaled)[0]
+                    risk_probability = probability[1]
+                else:
+                    risk_probability = None
+                
+                return {
+                    'model': model_name,
+                    'prediction': 'Preterm Birth' if prediction == 1 else 'Term Birth',
+                    'risk_score': int(prediction),
+                    'probability': float(risk_probability) if risk_probability is not None else None
+                }
             else:
-                risk_probability = None
-            
-            return {
-                'prediction': 'Preterm Birth' if prediction == 1 else 'Term Birth',
-                'risk_score': int(prediction),
-                'probability': float(risk_probability) if risk_probability is not None else None,
-                'model_used': self.best_model
-            }
+                # Return predictions from ALL models
+                results = {}
+                for name, model in self.models.items():
+                    pred = model.predict(patient_scaled)[0]
+                    prob = None
+                    if hasattr(model, 'predict_proba'):
+                        try:
+                            proba = model.predict_proba(patient_scaled)[0]
+                            prob = float(proba[1])  # Probability of preterm birth
+                        except:
+                            pass
+                    
+                    results[name] = {
+                        'prediction': 'Preterm Birth' if pred == 1 else 'Term Birth',
+                        'risk_score': int(pred),
+                        'probability': prob
+                    }
+                
+                return results
             
         except Exception as e:
             return {"error": f"Prediction failed: {str(e)}"}
@@ -462,7 +484,10 @@ def predict_preterm():
         if not preterm_predictor.models:
             return jsonify({"error": "Preterm birth models not available"}), 503
         
-        result = preterm_predictor.predict_preterm_risk(data)
+        # Extract model name if specified
+        model_name = data.pop('model', None) if 'model' in data else None
+        
+        result = preterm_predictor.predict_preterm_risk(data, model_name)
         
         if "error" in result:
             return jsonify(result), 400
@@ -470,9 +495,13 @@ def predict_preterm():
         response = {
             "success": True,
             "input_data": data,
-            "prediction": result,
+            "predictions": result,
             "prediction_type": "preterm_birth"
         }
+        
+        # Add recommended model info
+        if preterm_predictor.best_model:
+            response["recommended_model"] = preterm_predictor.best_model
         
         return jsonify(response)
         
